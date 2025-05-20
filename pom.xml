@@ -188,7 +188,7 @@
                 <artifactId>exec-maven-plugin</artifactId>
                 <version>3.0.0</version>
                 <configuration>
-                    <mainClass>StartAll</mainClass>
+                    <mainClass>utils.Bot</mainClass>
                 </configuration>
             </plugin>
         </plugins>

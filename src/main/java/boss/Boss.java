@@ -1045,6 +1045,7 @@ public class Boss {
         // 每次点击沟通前都休眠5秒 减少调用频率
         PlaywrightUtil.sleep(5);
 
+        String sayHiText = null;
         if (chatBtn.isVisible() && "立即沟通".equals(chatBtn.textContent().replaceAll("\\s+", ""))) {
             String waitTimeConfig = config.getWaitTime(); // 避免变量名冲突
             int sleepTime = 10; // 默认等待10秒
@@ -1073,6 +1074,14 @@ public class Boss {
                  return 0; // 返回0表示已处理（跳过）
             }
 
+            // 根据AI过滤结果或默认打招呼语填充输入框
+            sayHiText = config.getSayHi().replaceAll("\r|\n", "");
+            if (config.getEnableAI() && filterResult != null && filterResult.getResult() != null && !filterResult.getResult().contains("false")) {
+                sayHiText = filterResult.getResult();
+            } else if (config.getEnableAI() && filterResult != null && filterResult.getResult() != null && filterResult.getResult().contains("false")) {
+                log.info("AI建议不投递该岗位【{}】-【{}】", job.getCompanyName(), job.getJobName());
+                return 0;
+            }
             chatBtn.click();
 
             if (isLimit()) {
@@ -1126,15 +1135,11 @@ public class Boss {
                      }
 
                     // 根据AI过滤结果或默认打招呼语填充输入框
-                    String sayHiText = config.getSayHi().replaceAll("\\r|\\n", "");
-                     if (config.getEnableAI() && filterResult != null && filterResult.getResult() != null && !filterResult.getResult().contains("false")) {
-                         // 假设 AiFilter 的 getResult() 方法返回AI生成的打招呼语或表示匹配的状态
-                         // 这里直接使用 AI 返回的非 false 结果作为打招呼语
-                         sayHiText = filterResult.getResult();
-                     } else if (config.getEnableAI() && filterResult != null && filterResult.getResult() != null && filterResult.getResult().contains("false")) {
-                         // 如果AI明确返回false，则使用默认打招呼语（或者根据需要跳过）
-                         log.info("AI建议不投递该岗位【{}】-【{}】", job.getCompanyName(), job.getJobName());
-                         // 如果AI建议不投递，这里选择跳过
+                    sayHiText = config.getSayHi().replaceAll("\r|\n", "");
+                    if (config.getEnableAI() && filterResult != null && filterResult.getResult() != null && !filterResult.getResult().contains("false")) {
+                        sayHiText = filterResult.getResult();
+                    } else if (config.getEnableAI() && filterResult != null && filterResult.getResult() != null && filterResult.getResult().contains("false")) {
+                        log.info("AI建议不投递该岗位【{}】-【{}】", job.getCompanyName(), job.getJobName());
                         return 0;
                     }
                     input.fill(sayHiText);
@@ -1230,6 +1235,10 @@ public class Boss {
                 }
             }
             sb.append("- 抓取时间：").append(new java.text.SimpleDateFormat("yyyy-MM-dd HH:mm:ss").format(new java.util.Date())).append("\n");
+            // 新增：写入AI打招呼语
+            if (sayHiText != null && !sayHiText.isEmpty()) {
+                sb.append("- AI打招呼语：").append(sayHiText).append("\n");
+            }
             sb.append("---\n\n");
             java.nio.file.Files.write(java.nio.file.Paths.get(filePath), sb.toString().getBytes(java.nio.charset.StandardCharsets.UTF_8), java.nio.file.StandardOpenOption.CREATE, java.nio.file.StandardOpenOption.APPEND);
         } catch (Exception e) {
