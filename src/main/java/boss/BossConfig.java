@@ -3,6 +3,7 @@ package boss;
 import lombok.Data;
 import lombok.SneakyThrows;
 import utils.JobUtils;
+import com.fasterxml.jackson.databind.annotation.JsonDeserialize;
 
 import java.util.List;
 import java.util.Map;
@@ -107,9 +108,41 @@ public class BossConfig {
     private Integer deliverExpireDays;
 
     /**
+     * 黑名单项，支持字符串和对象两种方式
+     */
+    public static class BlackItem {
+        public String name;
+        public Integer days;
+        public BlackItem() {}
+        public BlackItem(String name, Integer days) {
+            this.name = name;
+            this.days = days;
+        }
+        // getter/setter
+    }
+
+    /**
      * 手动配置的公司黑名单，自动与data.json合并
      */
-    private List<String> manualBlackCompanies;
+    @JsonDeserialize(using = BlackItemDeserializer.class)
+    private List<BlackItem> manualBlackCompanies;
+
+    /**
+     * 手动配置的岗位黑名单，自动跳过这些岗位
+     */
+    @JsonDeserialize(using = BlackItemDeserializer.class)
+    private List<BlackItem> manualBlackJobs;
+
+    /**
+     * 手动配置的招聘者黑名单，自动跳过这些招聘者
+     */
+    @JsonDeserialize(using = BlackItemDeserializer.class)
+    private List<BlackItem> manualBlackRecruiters;
+
+    /**
+     * 手动配置的公司+招聘者黑名单，自动跳过这些公司下该招聘者发布的岗位
+     */
+    private List<Object> manualBlackCompanyRecruiters;
 
     /**
      * 是否使用关键词匹配岗位m名称，岗位名称不包含关键字就过滤
@@ -117,19 +150,9 @@ public class BossConfig {
      */
     private Boolean keyFilter;
 
-    /**
-     * 手动配置的岗位黑名单，自动跳过这些岗位
-     */
-    private List<String> manualBlackJobs;
-
     private Boolean recommendJobs;
 
     private Boolean h5Jobs;
-
-    /**
-     * 手动配置的招聘者黑名单，自动跳过这些招聘者
-     */
-    private List<String> manualBlackRecruiters;
 
     @SneakyThrows
     public static BossConfig init() {

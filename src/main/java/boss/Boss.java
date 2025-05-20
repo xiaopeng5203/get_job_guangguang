@@ -57,6 +57,192 @@ public class Boss {
     // 默认推荐岗位集合
     static List<Job> recommendJobs = new ArrayList<>();
 
+    static String blacklistTimePath = ProjectRootResolver.rootPath + "/src/main/resources/blacklist_time.json";
+    static Map<String, Map<String, Object>> blacklistTimeData = new HashMap<>();
+
+    static void loadBlacklistTime() {
+        File file = new File(blacklistTimePath);
+        if (!file.exists()) {
+            blacklistTimeData.put("companies", new HashMap<>());
+            blacklistTimeData.put("jobs", new HashMap<>());
+            blacklistTimeData.put("recruiters", new HashMap<>());
+            saveBlacklistTime();
+            return;
+        }
+        try {
+            String json = new String(Files.readAllBytes(Paths.get(blacklistTimePath)), StandardCharsets.UTF_8);
+            JSONObject obj = new JSONObject(json);
+            for (String type : Arrays.asList("companies", "jobs", "recruiters")) {
+                Map<String, Object> map = new HashMap<>();
+                if (obj.has(type)) {
+                    JSONObject sub = obj.getJSONObject(type);
+                    for (String key : sub.keySet()) {
+                        map.put(key, sub.getJSONObject(key).toMap());
+                    }
+                }
+                blacklistTimeData.put(type, map);
+            }
+        } catch (Exception e) {
+            log.warn("加载blacklist_time.json失败: {}", e.getMessage());
+        }
+    }
+
+    static void saveBlacklistTime() {
+        try {
+            JSONObject obj = new JSONObject();
+            for (String type : Arrays.asList("companies", "jobs", "recruiters")) {
+                Map<String, Object> map = blacklistTimeData.getOrDefault(type, new HashMap<>());
+                JSONObject sub = new JSONObject();
+                for (Map.Entry<String, Object> entry : map.entrySet()) {
+                    sub.put(entry.getKey(), entry.getValue());
+                }
+                obj.put(type, sub);
+            }
+            Files.write(Paths.get(blacklistTimePath), obj.toString(2).getBytes(StandardCharsets.UTF_8));
+        } catch (Exception e) {
+            log.warn("保存blacklist_time.json失败: {}", e.getMessage());
+        }
+    }
+
+    // === 新增：黑名单项结构 ===
+    public static class BlackItem {
+        public String name;
+        public Integer days; // 有效天数，null为永久
+        public Long addTime; // 加入时间戳，null为永久
+        public BlackItem(String name, Integer days, Long addTime) {
+            this.name = name;
+            this.days = days;
+            this.addTime = addTime;
+        }
+        public BlackItem(String name) {
+            this(name, null, null);
+        }
+        public boolean isExpired() {
+            if (days == null || addTime == null) return false;
+            long now = System.currentTimeMillis();
+            return (now - addTime) > days * 24 * 60 * 60 * 1000L;
+        }
+        public long remainDays() {
+            if (days == null || addTime == null) return Long.MAX_VALUE;
+            long now = System.currentTimeMillis();
+            long remain = days * 24 * 60 * 60 * 1000L - (now - addTime);
+            return remain > 0 ? remain / (24 * 60 * 60 * 1000L) : 0;
+        }
+    }
+    // === 新增：黑名单加载与持久化 ===
+    static List<BlackItem> blackCompanyItems = new ArrayList<>();
+    static List<BlackItem> blackJobItems = new ArrayList<>();
+    static List<BlackItem> blackRecruiterItems = new ArrayList<>();
+
+    // === 新增：公司+招聘者黑名单项结构 ===
+    public static class BlackCompanyRecruiterItem {
+        public String company;
+        public String recruiter;
+        public Integer days; // 有效天数，null为永久
+        public Long addTime; // 加入时间戳，null为永久
+        public BlackCompanyRecruiterItem(String company, String recruiter, Integer days, Long addTime) {
+            this.company = company;
+            this.recruiter = recruiter;
+            this.days = days;
+            this.addTime = addTime;
+        }
+        public BlackCompanyRecruiterItem(String company, String recruiter) {
+            this(company, recruiter, null, null);
+        }
+        public boolean isExpired() {
+            if (days == null || addTime == null) return false;
+            long now = System.currentTimeMillis();
+            return (now - addTime) > days * 24 * 60 * 60 * 1000L;
+        }
+        public long remainDays() {
+            if (days == null || addTime == null) return Long.MAX_VALUE;
+            long now = System.currentTimeMillis();
+            long remain = days * 24 * 60 * 60 * 1000L - (now - addTime);
+            return remain > 0 ? remain / (24 * 60 * 60 * 1000L) : 0;
+        }
+    }
+    static List<BlackCompanyRecruiterItem> blackCompanyRecruiterItems = new ArrayList<>();
+
+    static void loadBlackItems() {
+        loadBlacklistTime();
+        List<?> companies = config.getManualBlackCompanies();
+        List<?> jobs = config.getManualBlackJobs();
+        List<?> recruiters = config.getManualBlackRecruiters();
+        List<?> companyRecruiters = config.getManualBlackCompanyRecruiters();
+        blackCompanyItems = parseBlackListWithTime(companies, "companies");
+        blackJobItems = parseBlackListWithTime(jobs, "jobs");
+        blackRecruiterItems = parseBlackListWithTime(recruiters, "recruiters");
+        blackCompanyRecruiterItems = parseBlackCompanyRecruiterListWithTime(companyRecruiters, "companyRecruiters");
+    }
+
+    static List<BlackItem> parseBlackListWithTime(List<?> list, String type) {
+        List<BlackItem> result = new ArrayList<>();
+        if (list == null) return result;
+        Map<String, Object> timeMap = blacklistTimeData.getOrDefault(type, new HashMap<>());
+        for (Object o : list) {
+            if (o instanceof String) {
+                String name = (String) o;
+                Long addTime = null;
+                Integer days = null;
+                if (timeMap.containsKey(name)) {
+                    Map t = (Map) timeMap.get(name);
+                    addTime = t.get("addTime") == null ? null : Long.parseLong(t.get("addTime").toString());
+                    days = t.get("days") == null ? null : Integer.parseInt(t.get("days").toString());
+                }
+                result.add(new BlackItem(name, days, addTime));
+            } else if (o instanceof Map) {
+                Map map = (Map) o;
+                String name = (String) map.get("name");
+                Integer days = map.get("days") == null ? null : Integer.parseInt(map.get("days").toString());
+                Long addTime = null;
+                if (timeMap.containsKey(name)) {
+                    Map t = (Map) timeMap.get(name);
+                    addTime = t.get("addTime") == null ? null : Long.parseLong(t.get("addTime").toString());
+                }
+                result.add(new BlackItem(name, days, addTime));
+            }
+        }
+        return result;
+    }
+
+    static List<BlackCompanyRecruiterItem> parseBlackCompanyRecruiterListWithTime(List<?> list, String type) {
+        List<BlackCompanyRecruiterItem> result = new ArrayList<>();
+        if (list == null) return result;
+        Map<String, Object> timeMap = blacklistTimeData.getOrDefault(type, new HashMap<>());
+        for (Object o : list) {
+            if (o instanceof String) {
+                String s = (String) o;
+                String[] arr = s.split("\\|");
+                if (arr.length == 2) {
+                    String company = arr[0];
+                    String recruiter = arr[1];
+                    Long addTime = null;
+                    Integer days = null;
+                    String key = company + "|" + recruiter;
+                    if (timeMap.containsKey(key)) {
+                        Map t = (Map) timeMap.get(key);
+                        addTime = t.get("addTime") == null ? null : Long.parseLong(t.get("addTime").toString());
+                        days = t.get("days") == null ? null : Integer.parseInt(t.get("days").toString());
+                    }
+                    result.add(new BlackCompanyRecruiterItem(company, recruiter, days, addTime));
+                }
+            } else if (o instanceof Map) {
+                Map map = (Map) o;
+                String company = (String) map.get("company");
+                String recruiter = (String) map.get("recruiter");
+                Integer days = map.get("days") == null ? null : Integer.parseInt(map.get("days").toString());
+                Long addTime = null;
+                String key = company + "|" + recruiter;
+                if (timeMap.containsKey(key)) {
+                    Map t = (Map) timeMap.get(key);
+                    addTime = t.get("addTime") == null ? null : Long.parseLong(t.get("addTime").toString());
+                }
+                result.add(new BlackCompanyRecruiterItem(company, recruiter, days, addTime));
+            }
+        }
+        return result;
+    }
+
     static {
         try {
             // 检查dataPath文件是否存在，不存在则创建
@@ -436,6 +622,14 @@ public class Boss {
                             if (companyName.matches(".*(\\p{IsHan}{2,}|[a-zA-Z]{4,}).*")) {
                                 blackCompanies.add(companyName);
                             }
+                            // 新增：自动将公司+招聘者组合加入黑名单
+                            String recruiterName = null;
+                            try {
+                                recruiterName = messageElements.nth(i).textContent(); // 这里假设能获取到招聘者名
+                            } catch (Exception e) {}
+                            if (recruiterName != null && !recruiterName.isEmpty()) {
+                                addToBlackCompanyRecruiterBlacklist(companyName, recruiterName, 7); // 默认7天，可根据配置调整
+                            }
                         }
                     }
                 } catch (Exception e) {
@@ -513,18 +707,15 @@ public class Boss {
             String salary = jobCard.querySelector("div.title span.salary").textContent();
             String jobHref = jobCard.querySelector("a").getAttribute("href");
 
-            if (blackRecruiters.stream().anyMatch(recruiterText::contains)) {
-                // 排除黑名单招聘人员
+            if (isInBlackList(blackRecruiterItems, recruiterText, "招聘者", jobHref)) {
                 continue;
             }
             String jobName = jobCard.querySelector("div.title span.title-text").textContent();
-            if (blackJobs.stream().anyMatch(jobName::contains) || !isTargetJob(keyword, jobName)) {
-                // 排除黑名单岗位
+            if (isInBlackList(blackJobItems, jobName, "岗位", jobName) || !isTargetJob(keyword, jobName)) {
                 continue;
             }
             String companyName = jobCard.querySelector("div.name span.company").textContent();
-            if (blackCompanies.stream().anyMatch(companyName::contains)) {
-                // 排除黑名单公司
+            if (isInBlackList(blackCompanyItems, companyName, "公司", jobName)) {
                 continue;
             }
             if (isSalaryNotExpected(salary)) {
@@ -622,14 +813,12 @@ public class Boss {
                 }
 
 
-                if (blackJobs.stream().anyMatch(jobName::contains) || !isTargetJob(keyword, jobName)) {
-                    // 排除黑名单岗位
+                if (isInBlackList(blackJobItems, jobName, "岗位", jobName) || !isTargetJob(keyword, jobName)) {
                     continue;
                 }
 
 
-                if (blackCompanies.stream().anyMatch(companyName::contains)) {
-                    // 排除黑名单公司
+                if (isInBlackList(blackCompanyItems, companyName, "公司", jobName)) {
                     continue;
                 }
 
@@ -726,30 +915,6 @@ public class Boss {
             // 更新Job对象的jobKeywordTag，包含描述和职责
             job.setJobKeywordTag(jobDescriptionAndResponsibility);
 
-            // === 新增：写入岗位详情到文档 ===
-            try {
-                String dirPath = ProjectRootResolver.rootPath + "/src/main/resources/job_details";
-                java.nio.file.Path dir = java.nio.file.Paths.get(dirPath);
-                if (!java.nio.file.Files.exists(dir)) {
-                    java.nio.file.Files.createDirectories(dir);
-                }
-                String filePath = dirPath + "/job_details.md";
-                StringBuilder sb = new StringBuilder();
-                sb.append("## 岗位名称：").append(job.getJobName()).append("\n");
-                sb.append("- 公司名称：").append(job.getCompanyName()).append("\n");
-                sb.append("- 工作地点：").append(job.getJobArea()).append("\n");
-                sb.append("- 薪资：").append(job.getSalary()).append("\n");
-                sb.append("- 招聘者：").append(job.getRecruiter()).append("\n");
-                sb.append("- 职位描述/职责/要求：\n");
-                sb.append(jobDescriptionAndResponsibility == null ? "" : jobDescriptionAndResponsibility.replaceAll("\r?\n", "\n> ")).append("\n");
-                sb.append("- 抓取时间：").append(new java.text.SimpleDateFormat("yyyy-MM-dd HH:mm:ss").format(new java.util.Date())).append("\n");
-                sb.append("---\n\n");
-                java.nio.file.Files.write(java.nio.file.Paths.get(filePath), sb.toString().getBytes(java.nio.charset.StandardCharsets.UTF_8), java.nio.file.StandardOpenOption.CREATE, java.nio.file.StandardOpenOption.APPEND);
-            } catch (Exception e) {
-                log.warn("写入岗位详情文档失败: {}", e.getMessage());
-            }
-            // === 新增结束 ===
-
             // 修改后的关键词匹配逻辑，检查岗位名称、描述或职责是否包含任一关键词
             boolean containsKeyword = false;
             if (keywords != null && !keywords.isEmpty()) {
@@ -822,30 +987,43 @@ public class Boss {
         // 获取招聘人员信息
         try {
             Locator recruiterElement = jobPage.locator(BossElementLocators.RECRUITER_INFO);
+            String recruiterName = "未知";
+            String recruiterTitle = "";
             if (recruiterElement.isVisible()) {
-                String recruiterName = recruiterElement.textContent();
-                job.setRecruiter(recruiterName.replaceAll("\\r|\\n", ""));
-                if (blackRecruiters.stream().anyMatch(recruiterName::contains)) {
-                    // 排除黑名单招聘人员
-                    log.info("已过滤:【{}】公司【{}】岗位，招聘人员【{}】在黑名单中", job.getCompanyName(), job.getJobName(), recruiterName);
-                    // jobPage.close(); // 在调用 processJobDetail 的地方关闭页面
-                    return 0; // 返回0表示已处理（跳过）
+                String recruiterRaw = recruiterElement.textContent().replaceAll("\r|\n", "").trim();
+                // 尝试用正则提取真实姓名和岗位
+                // 例如"张三 HRBP"或"穗彩科技·HRBP"
+                java.util.regex.Matcher m = java.util.regex.Pattern.compile("([\u4e00-\u9fa5]{2,4})[·\s]*([A-Za-z0-9\u4e00-\u9fa5]+)?").matcher(recruiterRaw);
+                if (m.find()) {
+                    recruiterName = m.group(1);
+                    recruiterTitle = m.group(2) != null ? m.group(2) : "";
+                } else {
+                    recruiterTitle = recruiterRaw;
                 }
+            }
+            String recruiterField = recruiterName + " | " + job.getCompanyName() + " | " + recruiterTitle;
+            job.setRecruiter(recruiterField);
+            if (isInBlackCompanyRecruiterList(blackCompanyRecruiterItems, job.getCompanyName(), recruiterName, job.getJobName())) {
+                log.info("已过滤:【{}】公司【{}】岗位，招聘人员【{}】在公司+招聘者黑名单中", job.getCompanyName(), job.getJobName(), recruiterName);
+                return 0;
+            }
+            if (isInBlackList(blackRecruiterItems, recruiterName, "招聘者", job.getJobName())) {
+                log.info("已过滤:【{}】公司【{}】岗位，招聘人员【{}】在黑名单中", job.getCompanyName(), job.getJobName(), recruiterName);
+                return 0;
             }
         } catch (Exception ignore) {
             log.info("获取招聘人员信息失败:{}", ignore.getMessage());
-             // 出错时，可以根据需要决定是否跳过。这里选择继续，让其他过滤逻辑判断
         }
 
         // 检查黑名单公司 (这个检查也可以放在processJobListDetails中更早执行)
-         if (blackCompanies.stream().anyMatch(job.getCompanyName()::contains)) {
+         if (isInBlackList(blackCompanyItems, job.getCompanyName(), "公司", job.getJobName())) {
              log.info("已过滤:【{}】公司【{}】岗位，公司在黑名单中", job.getCompanyName(), job.getJobName());
              // jobPage.close(); // 在调用 processJobDetail 的地方关闭页面
              return 0; // 返回0表示已处理（跳过）
          }
 
          // 检查黑名单岗位名称 (这个检查也可以放在processJobListDetails中更早执行)
-         if (blackJobs.stream().anyMatch(job.getJobName()::contains)) {
+         if (isInBlackList(blackJobItems, job.getJobName(), "岗位", job.getJobName())) {
              log.info("已过滤:【{}】公司【{}】岗位名称在黑名单中", job.getCompanyName(), job.getJobName());
              // jobPage.close(); // 在调用 processJobDetail 的地方关闭页面
              return 0; // 返回0表示已处理（跳过）
@@ -1020,7 +1198,44 @@ public class Boss {
             log.info("已过滤:【{}】公司【{}】岗位，无法立即沟通或已沟通", job.getCompanyName(), job.getJobName());
         }
 
-        // 如果走到这里没有返回负数，都视为已处理
+        // === 新增：写入岗位详情到文档 ===
+        try {
+            String dirPath = ProjectRootResolver.rootPath + "/src/main/resources/job_details";
+            java.nio.file.Path dir = java.nio.file.Paths.get(dirPath);
+            if (!java.nio.file.Files.exists(dir)) {
+                java.nio.file.Files.createDirectories(dir);
+            }
+            String filePath = dirPath + "/job_details.md";
+            StringBuilder sb = new StringBuilder();
+            sb.append("## 岗位名称：").append(job.getJobName()).append("\n");
+            sb.append("- 公司名称：").append(job.getCompanyName()).append("\n");
+            sb.append("- 工作地点：").append(job.getJobArea()).append("\n");
+            sb.append("- 薪资：").append(job.getSalary() == null ? "" : job.getSalary()).append("\n");
+            sb.append("- 招聘者：").append(job.getRecruiter() == null ? "" : job.getRecruiter()).append("\n");
+            sb.append("- 职位描述/职责/要求：\n");
+            // 分行处理岗位职责/要求
+            String rawDesc = job.getJobKeywordTag() == null ? "" : job.getJobKeywordTag();
+            String[] lines = rawDesc.split("[；;。\n]");
+            int idx = 1;
+            for (String line : lines) {
+                line = line.trim();
+                if (!line.isEmpty()) {
+                    // 保留原有序号，否则自动加序号
+                    if (!line.matches("^\\d+[、.].*")) {
+                        sb.append(idx).append("、");
+                        idx++;
+                    }
+                    sb.append(line).append("\n");
+                }
+            }
+            sb.append("- 抓取时间：").append(new java.text.SimpleDateFormat("yyyy-MM-dd HH:mm:ss").format(new java.util.Date())).append("\n");
+            sb.append("---\n\n");
+            java.nio.file.Files.write(java.nio.file.Paths.get(filePath), sb.toString().getBytes(java.nio.charset.StandardCharsets.UTF_8), java.nio.file.StandardOpenOption.CREATE, java.nio.file.StandardOpenOption.APPEND);
+        } catch (Exception e) {
+            log.warn("写入岗位详情文档失败: {}", e.getMessage());
+        }
+        // === 新增结束 ===
+
         return 0;
     }
 
@@ -1642,6 +1857,76 @@ public class Boss {
             log.error("薪资检查异常: {}", e.getMessage());
             return false;
         }
+    }
+
+    // === 新增：黑名单过滤逻辑 ===
+    static boolean isInBlackList(List<BlackItem> list, String name, String type, String jobName) {
+        String typeKey = type.equals("公司") ? "companies" : type.equals("岗位") ? "jobs" : "recruiters";
+        for (BlackItem item : list) {
+            if (name != null && name.contains(item.name)) {
+                // 首次命中记录 addTime 并持久化
+                if (item.days != null && item.addTime == null) {
+                    item.addTime = System.currentTimeMillis();
+                    Map<String, Object> map = blacklistTimeData.getOrDefault(typeKey, new HashMap<>());
+                    Map<String, Object> v = new HashMap<>();
+                    v.put("addTime", item.addTime);
+                    v.put("days", item.days);
+                    map.put(item.name, v);
+                    blacklistTimeData.put(typeKey, map);
+                    saveBlacklistTime();
+                }
+                if (item.isExpired()) continue;
+                long remain = item.remainDays();
+                log.info("已过滤：{}黑名单命中【{}】，剩余有效天数：{}，岗位【{}】", type, item.name, remain == Long.MAX_VALUE ? "永久" : remain + "天", jobName);
+                return true;
+            }
+        }
+        return false;
+    }
+
+    static boolean isInBlackCompanyRecruiterList(List<BlackCompanyRecruiterItem> list, String company, String recruiter, String jobName) {
+        String typeKey = "companyRecruiters";
+        for (BlackCompanyRecruiterItem item : list) {
+            if (company != null && recruiter != null && company.equals(item.company) && recruiter.equals(item.recruiter)) {
+                // 首次命中记录 addTime 并持久化
+                if (item.days != null && item.addTime == null) {
+                    item.addTime = System.currentTimeMillis();
+                    Map<String, Object> map = blacklistTimeData.getOrDefault(typeKey, new HashMap<>());
+                    Map<String, Object> v = new HashMap<>();
+                    v.put("addTime", item.addTime);
+                    v.put("days", item.days);
+                    map.put(item.company + "|" + item.recruiter, v);
+                    blacklistTimeData.put(typeKey, map);
+                    saveBlacklistTime();
+                }
+                if (item.isExpired()) continue;
+                long remain = item.remainDays();
+                log.info("已过滤：公司+招聘者黑名单命中【{}|{}】，剩余有效天数：{}，岗位【{}】", item.company, item.recruiter, remain == Long.MAX_VALUE ? "永久" : remain + "天", jobName);
+                return true;
+            }
+        }
+        return false;
+    }
+
+    // 新增方法
+    static void addToBlackCompanyRecruiterBlacklist(String company, String recruiter, int days) {
+        // 先查重
+        for (BlackCompanyRecruiterItem item : blackCompanyRecruiterItems) {
+            if (company.equals(item.company) && recruiter.equals(item.recruiter)) {
+                return;
+            }
+        }
+        BlackCompanyRecruiterItem newItem = new BlackCompanyRecruiterItem(company, recruiter, days, System.currentTimeMillis());
+        blackCompanyRecruiterItems.add(newItem);
+        // 持久化到blacklist_time.json
+        Map<String, Object> map = blacklistTimeData.getOrDefault("companyRecruiters", new HashMap<>());
+        Map<String, Object> v = new HashMap<>();
+        v.put("addTime", newItem.addTime);
+        v.put("days", newItem.days);
+        map.put(company + "|" + recruiter, v);
+        blacklistTimeData.put("companyRecruiters", map);
+        saveBlacklistTime();
+        log.info("自动加入公司+招聘者黑名单：【{}|{}】，有效期{}天", company, recruiter, days);
     }
 
 }

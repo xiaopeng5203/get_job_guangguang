@@ -947,4 +947,33 @@ public class PlaywrightUtil {
     public static void setCookie(String name, String value, String domain, String path) {
         setCookie(name, value, domain, path, null, null, null, defaultDeviceType);
     }
+
+    /**
+     * 从Boss直聘岗位详情页精准提取招聘者信息（姓名 | 公司名 | 岗位名）
+     * @param page Playwright页面对象
+     * @return 招聘者信息字符串，格式：姓名 | 公司名 | 岗位名
+     */
+    public static String getRecruiterInfoFromBossJob(Page page) {
+        try {
+            // 1. 获取招聘者姓名（去除子元素，仅取文本）
+            Locator nameLocator = page.locator(".job-boss-info h2.name");
+            String recruiterName = nameLocator.evaluate("el => el.childNodes[0].textContent.trim()") + "";
+            if (recruiterName.isEmpty()) recruiterName = "未知";
+            // 2. 获取公司名和岗位名
+            String bossAttr = page.locator(".job-boss-info .boss-info-attr").textContent().trim();
+            String companyName = "";
+            String recruiterTitle = "";
+            if (bossAttr.contains("·")) {
+                String[] parts = bossAttr.split("·");
+                companyName = parts.length > 0 ? parts[0].trim() : "";
+                recruiterTitle = parts.length > 1 ? parts[1].trim() : "";
+            } else {
+                companyName = bossAttr;
+            }
+            return recruiterName + " | " + companyName + " | " + recruiterTitle;
+        } catch (Exception e) {
+            log.error("招聘者信息抓取失败", e);
+            return "未知 | 未知 | 未知";
+        }
+    }
 }

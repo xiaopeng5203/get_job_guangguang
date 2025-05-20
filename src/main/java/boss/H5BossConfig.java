@@ -72,19 +72,36 @@ public class H5BossConfig {
     private Integer deliverExpireDays;
 
     /**
-     * 手动配置的岗位黑名单，自动跳过这些岗位
+     * 通用黑名单项，支持 name 和 days
      */
-    private List<String> manualBlackJobs;
+    @lombok.Data
+    public static class BlackItem {
+        private String name;
+        private Integer days; // null 表示永久
+        public BlackItem() {}
+        public BlackItem(String name, Integer days) {
+            this.name = name;
+            this.days = days;
+        }
+        public boolean isExpired(Long addTime) {
+            if (days == null || addTime == null) return false;
+            long now = System.currentTimeMillis();
+            return now - addTime > days * 24L * 3600 * 1000;
+        }
+    }
 
     /**
-     * 手动配置的公司黑名单，自动跳过这些公司
+     * 手动配置的岗位黑名单，自动跳过这些岗位，支持字符串和对象两种方式
      */
-    private List<String> manualBlackCompanies;
-
+    private List<Object> manualBlackJobs;
     /**
-     * 手动配置的招聘者黑名单，自动跳过这些招聘者
+     * 手动配置的公司黑名单，自动跳过这些公司，支持字符串和对象两种方式
      */
-    private List<String> manualBlackRecruiters;
+    private List<Object> manualBlackCompanies;
+    /**
+     * 手动配置的招聘者黑名单，自动跳过这些招聘者，支持字符串和对象两种方式
+     */
+    private List<Object> manualBlackRecruiters;
 
     /**
      * 是否发送图片简历
@@ -156,6 +173,44 @@ public class H5BossConfig {
         config.setScale(config.getScale().stream().map(value -> H5BossEnum.Scale.forValue(value).getCode()).collect(Collectors.toList()));
 
         return config;
+    }
+
+    /**
+     * 统一获取岗位黑名单项列表
+     */
+    public List<BlackItem> getManualBlackJobItemList() {
+        return parseBlackItemList(manualBlackJobs);
+    }
+    /**
+     * 统一获取公司黑名单项列表
+     */
+    public List<BlackItem> getManualBlackCompanyItemList() {
+        return parseBlackItemList(manualBlackCompanies);
+    }
+    /**
+     * 统一获取招聘者黑名单项列表
+     */
+    public List<BlackItem> getManualBlackRecruiterItemList() {
+        return parseBlackItemList(manualBlackRecruiters);
+    }
+
+    /**
+     * 解析黑名单配置，兼容字符串和对象
+     */
+    private List<BlackItem> parseBlackItemList(List<Object> list) {
+        if (list == null) return java.util.Collections.emptyList();
+        return list.stream().map(obj -> {
+            if (obj instanceof String) {
+                return new BlackItem((String) obj, null);
+            } else if (obj instanceof java.util.Map) {
+                Map map = (Map) obj;
+                String name = String.valueOf(map.get("name"));
+                Integer days = map.get("days") == null ? null : Integer.valueOf(map.get("days").toString());
+                return new BlackItem(name, days);
+            } else {
+                return null;
+            }
+        }).filter(java.util.Objects::nonNull).collect(Collectors.toList());
     }
 
 }

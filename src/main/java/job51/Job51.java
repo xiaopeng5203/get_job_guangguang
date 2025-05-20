@@ -11,10 +11,19 @@ import utils.SeleniumUtil;
 import java.util.ArrayList;
 import java.util.Date;
 import java.util.List;
+import java.util.Map;
+import java.util.HashMap;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Paths;
+import org.json.JSONObject;
 
 import static utils.Bot.sendMessageByTime;
 import static utils.Constant.*;
 import static utils.JobUtils.formatDuration;
+
+import java.io.File;
+import java.util.Arrays;
 
 /**
  * @author loks666
@@ -33,6 +42,141 @@ public class Job51 {
     static List<String> resultList = new ArrayList<>();
     static Job51Config config = Job51Config.init();
     static Date startDate;
+    static String blacklistTimePath = "src/main/resources/blacklist_time.json";
+    static Map<String, Map<String, Object>> blacklistTimeData = new HashMap<>();
+    static List<BlackItem> blackCompanyItems = new ArrayList<>();
+    static List<BlackItem> blackJobItems = new ArrayList<>();
+    static List<BlackItem> blackRecruiterItems = new ArrayList<>();
+
+    public static class BlackItem {
+        public String name;
+        public Integer days;
+        public Long addTime;
+        public BlackItem(String name, Integer days, Long addTime) {
+            this.name = name;
+            this.days = days;
+            this.addTime = addTime;
+        }
+        public BlackItem(String name) { this(name, null, null); }
+        public boolean isExpired() {
+            if (days == null || addTime == null) return false;
+            long now = System.currentTimeMillis();
+            return (now - addTime) > days * 24 * 60 * 60 * 1000L;
+        }
+        public long remainDays() {
+            if (days == null || addTime == null) return Long.MAX_VALUE;
+            long now = System.currentTimeMillis();
+            long remain = days * 24 * 60 * 60 * 1000L - (now - addTime);
+            return remain > 0 ? remain / (24 * 60 * 60 * 1000L) : 0;
+        }
+    }
+
+    static void loadBlacklistTime() {
+        File file = new File(blacklistTimePath);
+        if (!file.exists()) {
+            blacklistTimeData.put("companies", new HashMap<>());
+            blacklistTimeData.put("jobs", new HashMap<>());
+            blacklistTimeData.put("recruiters", new HashMap<>());
+            saveBlacklistTime();
+            return;
+        }
+        try {
+            String json = new String(Files.readAllBytes(Paths.get(blacklistTimePath)), StandardCharsets.UTF_8);
+            JSONObject obj = new JSONObject(json);
+            for (String type : Arrays.asList("companies", "jobs", "recruiters")) {
+                Map<String, Object> map = new HashMap<>();
+                if (obj.has(type)) {
+                    JSONObject sub = obj.getJSONObject(type);
+                    for (String key : sub.keySet()) {
+                        map.put(key, sub.getJSONObject(key).toMap());
+                    }
+                }
+                blacklistTimeData.put(type, map);
+            }
+        } catch (Exception e) {
+            log.warn("加载blacklist_time.json失败: {}", e.getMessage());
+        }
+    }
+
+    static void saveBlacklistTime() {
+        try {
+            JSONObject obj = new JSONObject();
+            for (String type : Arrays.asList("companies", "jobs", "recruiters")) {
+                Map<String, Object> map = blacklistTimeData.getOrDefault(type, new HashMap<>());
+                JSONObject sub = new JSONObject();
+                for (Map.Entry<String, Object> entry : map.entrySet()) {
+                    sub.put(entry.getKey(), entry.getValue());
+                }
+                obj.put(type, sub);
+            }
+            Files.write(Paths.get(blacklistTimePath), obj.toString(2).getBytes(StandardCharsets.UTF_8));
+        } catch (Exception e) {
+            log.warn("保存blacklist_time.json失败: {}", e.getMessage());
+        }
+    }
+
+    static void loadBlackItems() {
+        loadBlacklistTime();
+        List<?> companies = config.getManualBlackCompanies();
+        List<?> jobs = config.getManualBlackJobs();
+        List<?> recruiters = config.getManualBlackRecruiters();
+        blackCompanyItems = parseBlackListWithTime(companies, "companies");
+        blackJobItems = parseBlackListWithTime(jobs, "jobs");
+        blackRecruiterItems = parseBlackListWithTime(recruiters, "recruiters");
+    }
+
+    static List<BlackItem> parseBlackListWithTime(List<?> list, String type) {
+        List<BlackItem> result = new ArrayList<>();
+        if (list == null) return result;
+        Map<String, Object> timeMap = blacklistTimeData.getOrDefault(type, new HashMap<>());
+        for (Object o : list) {
+            if (o instanceof String) {
+                String name = (String) o;
+                Long addTime = null;
+                Integer days = null;
+                if (timeMap.containsKey(name)) {
+                    Map t = (Map) timeMap.get(name);
+                    addTime = t.get("addTime") == null ? null : Long.parseLong(t.get("addTime").toString());
+                    days = t.get("days") == null ? null : Integer.parseInt(t.get("days").toString());
+                }
+                result.add(new BlackItem(name, days, addTime));
+            } else if (o instanceof Map) {
+                Map map = (Map) o;
+                String name = (String) map.get("name");
+                Integer days = map.get("days") == null ? null : Integer.parseInt(map.get("days").toString());
+                Long addTime = null;
+                if (timeMap.containsKey(name)) {
+                    Map t = (Map) timeMap.get(name);
+                    addTime = t.get("addTime") == null ? null : Long.parseLong(t.get("addTime").toString());
+                }
+                result.add(new BlackItem(name, days, addTime));
+            }
+        }
+        return result;
+    }
+
+    static boolean isInBlackList(List<BlackItem> list, String name, String type, String jobName) {
+        String typeKey = type.equals("公司") ? "companies" : type.equals("岗位") ? "jobs" : "recruiters";
+        for (BlackItem item : list) {
+            if (name != null && name.contains(item.name)) {
+                if (item.days != null && item.addTime == null) {
+                    item.addTime = System.currentTimeMillis();
+                    Map<String, Object> map = blacklistTimeData.getOrDefault(typeKey, new HashMap<>());
+                    Map<String, Object> v = new HashMap<>();
+                    v.put("addTime", item.addTime);
+                    v.put("days", item.days);
+                    map.put(item.name, v);
+                    blacklistTimeData.put(typeKey, map);
+                    saveBlacklistTime();
+                }
+                if (item.isExpired()) continue;
+                long remain = item.remainDays();
+                log.info("已过滤：{}黑名单命中【{}】，剩余有效天数：{}，岗位【{}】", type, item.name, remain == Long.MAX_VALUE ? "永久" : remain + "天", jobName);
+                return true;
+            }
+        }
+        return false;
+    }
 
     public static void main(String[] args) {
         String searchUrl = getSearchUrl();
