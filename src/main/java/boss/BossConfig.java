@@ -154,6 +154,11 @@ public class BossConfig {
 
     private Boolean h5Jobs;
 
+    /**
+     * cookie文件名
+     */
+    private String cookie;
+
     @SneakyThrows
     public static BossConfig init() {
         BossConfig config = JobUtils.getConfig(BossConfig.class);

@@ -280,6 +280,8 @@ public class Boss {
 
     public static void main(String[] args) {
         loadData(dataPath);
+        loadBlacklistTime();
+        loadBlackItems();
         PlaywrightUtil.init();
         startDate = new Date();
         login();
@@ -288,8 +290,7 @@ public class Boss {
         }
         if (recommendJobs.isEmpty() && config.getRecommendJobs()) {
             getRecommendJobs();
-            // 处理推荐职位
-            int recommendResult = processRecommendJobs();
+            processRecommendJobs();
         }
         config.getCityCode().forEach(Boss::postJobByCityByPlaywright);
         log.info(resultList.isEmpty() ? "未发起新的聊天..." : "新发起聊天公司如下:\n{}",
