@@ -60,6 +60,11 @@ public class Job implements Serializable {
      */
     private String companyInfo;
 
+    /**
+     * 详细工作地址
+     */
+    private String detailAddress;
+
     @Override
     public String toString() {
         return String.format("【%s, %s, %s, %s, %s, %s】", companyName, jobName, jobArea, salary, companyTag, recruiter);

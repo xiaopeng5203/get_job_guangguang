@@ -41,8 +41,7 @@ public class BossElementLocators {
     public static final String HR_ACTIVE_TIME = "//span[@class='boss-active-time']";
     public static final String JOB_DESCRIPTION = "//div[@class='job-sec-text']";
     public static final String JOB_KEYWORD_LIST = "ul.job-keyword-list li";
-
-
+    public static final String JOB_DETAIL_ADDRESS = "//div[@class='location-address']";
 
     // 聊天相关元素
     public static final String DIALOG_TITLE = "//div[@class='dialog-title']";
