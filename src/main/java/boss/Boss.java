@@ -260,67 +260,80 @@ public class Boss {
     private static void postJobByCityByPlaywright(String cityCode) {
         String searchUrl = getSearchUrl(cityCode);
         for (String keyword : config.getKeywords()) {
-            // 使用 URLEncoder 对关键词进行编码
             String encodedKeyword = URLEncoder.encode(keyword, StandardCharsets.UTF_8);
-
             String url = searchUrl + "&query=" + encodedKeyword;
             log.info("查询岗位链接:{}", url);
-            Page page = PlaywrightUtil.getPageObject();
+
+            Page page = PlaywrightUtil.getPageObject().context().newPage();
             PlaywrightUtil.loadCookies(cookiePath);
-            page.navigate(url);
+            try {
+                page.navigate(url, new Page.NavigateOptions().setTimeout(60000));
+                // 记录下拉前后的岗位数量
+                int previousJobCount = 0;
+                int currentJobCount = 0;
+                int unchangedCount = 0;
 
-            // 记录下拉前后的岗位数量
-            int previousJobCount = 0;
-            int currentJobCount = 0;
-            int unchangedCount = 0;
+                if (isJobsPresent()) {
+                    // 尝试滚动页面加载更多数据
+                    try {
+                        // 获取岗位列表并下拉加载更多
+                        log.info("开始获取岗位信息...");
 
-            if (isJobsPresent()) {
-                // 尝试滚动页面加载更多数据
-                try {
-                    // 获取岗位列表并下拉加载更多
-                    log.info("开始获取岗位信息...");
+                        while (unchangedCount < 2) {
+                            // 获取所有岗位卡片
+                            List<ElementHandle> jobCards = page.querySelectorAll(JOB_LIST_SELECTOR);
+                            currentJobCount = jobCards.size();
 
-                    while (unchangedCount < 2) {
-                        // 获取所有岗位卡片
-                        List<ElementHandle> jobCards = page.querySelectorAll(JOB_LIST_SELECTOR);
-                        currentJobCount = jobCards.size();
+                            log.info("当前已加载岗位数量:{} ", currentJobCount);
 
-                        log.info("当前已加载岗位数量:{} ", currentJobCount);
+                            // 判断是否有新增岗位
+                            if (currentJobCount > previousJobCount) {
+                                previousJobCount = currentJobCount;
+                                unchangedCount = 0;
 
-                        // 判断是否有新增岗位
-                        if (currentJobCount > previousJobCount) {
-                            previousJobCount = currentJobCount;
-                            unchangedCount = 0;
+                                // 滚动到页面底部加载更多
+                                PlaywrightUtil.evaluate("window.scrollTo(0, document.body.scrollHeight)");
+                                log.info("下拉页面加载更多...");
 
-                            // 滚动到页面底部加载更多
-                            PlaywrightUtil.evaluate("window.scrollTo(0, document.body.scrollHeight)");
-                            log.info("下拉页面加载更多...");
-
-                            // 等待新内容加载
-                            page.waitForTimeout(2000);
-                        } else {
-                            unchangedCount++;
-                            if (unchangedCount < 2) {
-                                System.out.println("下拉后岗位数量未增加，再次尝试...");
-                                // 再次尝试滚动
-                                page.evaluate("window.scrollTo(0, document.body.scrollHeight)");
+                                // 等待新内容加载
                                 page.waitForTimeout(2000);
                             } else {
-                                break;
+                                unchangedCount++;
+                                if (unchangedCount < 2) {
+                                    System.out.println("下拉后岗位数量未增加，再次尝试...");
+                                    // 再次尝试滚动
+                                    page.evaluate("window.scrollTo(0, document.body.scrollHeight)");
+                                    page.waitForTimeout(2000);
+                                } else {
+                                    break;
+                                }
                             }
                         }
+
+                        log.info("已获取所有可加载岗位，共计: " + currentJobCount + " 个");
+
+                        log.info("继续滚动加载更多岗位");
+                    } catch (Exception e) {
+                        log.error("滚动加载数据异常: {}", e.getMessage());
+                        break;
                     }
+                }
 
-                    log.info("已获取所有可加载岗位，共计: " + currentJobCount + " 个");
-
-                    log.info("继续滚动加载更多岗位");
-                } catch (Exception e) {
-                    log.error("滚动加载数据异常: {}", e.getMessage());
-                    break;
+                resumeSubmission(keyword, page);
+            } catch (Exception e) {
+                log.error("页面跳转超时: {}，url: {}", e.getMessage(), url);
+                continue;
+            } finally {
+                if (page != null) {
+                    page.close();
                 }
             }
-
-            resumeSubmission(keyword);
+            try {
+                Thread.sleep(3000); // 每次投递后休息3秒
+            } catch (InterruptedException ie) {
+                Thread.currentThread().interrupt();
+                log.warn("线程休眠被中断: {}", ie.getMessage());
+            }
         }
     }
 
@@ -485,9 +498,8 @@ public class Boss {
 
 
     @SneakyThrows
-    private static Integer h5ResumeSubmission(String keyword) {
+    private static Integer h5ResumeSubmission(String keyword, Page page) {
         // 查找所有job卡片元素
-        Page page = PlaywrightUtil.getPageObject(PlaywrightUtil.DeviceType.MOBILE);
         // 获取元素总数
         List<ElementHandle> jobCards = page.querySelectorAll("ul li.item");
         List<Job> jobs = new ArrayList<>();
@@ -564,7 +576,7 @@ public class Boss {
         }
 
         // 处理每个职位详情
-        int result = processJobListDetails(jobs, keyword);
+        int result = processJobListDetails(jobs, keyword, page);
         if (result < 0) {
             return result;
         }
@@ -574,9 +586,8 @@ public class Boss {
 
 
     @SneakyThrows
-    private static Integer resumeSubmission(String keyword) {
+    private static Integer resumeSubmission(String keyword, Page page) {
         // 查找所有job卡片元素
-        Page page = PlaywrightUtil.getPageObject();
         // 使用page.locator方法获取所有匹配的元素
         Locator jobLocators = BossElementFinder.getPlaywrightLocator(page, BossElementLocators.JOB_CARD_BOX);
         // 获取元素总数
@@ -644,7 +655,7 @@ public class Boss {
         }
 
         // 处理每个职位详情
-        int result = processJobListDetails(jobs, keyword);
+        int result = processJobListDetails(jobs, keyword, page);
         if (result < 0) {
             return result;
         }
@@ -660,21 +671,20 @@ public class Boss {
      * @return 处理结果，负数表示出错
      */
     @SneakyThrows
-    private static int processJobListDetails(List<Job> jobs, String keyword) {
+    private static int processJobListDetails(List<Job> jobs, String keyword, Page page) {
         List<String> keywords = config.getKeywords(); // 获取配置中的关键词列表
 
         for (Job job : jobs) {
             // 使用Playwright在新标签页中打开链接
-            Page jobPage = PlaywrightUtil.getPageObject().context().newPage();
+            Page jobPage = page.context().newPage();
             try {
                 jobPage.navigate(homeUrl + job.getHref());
                 // 等待聊天按钮出现或其他判断页面加载成功的元素
                 Locator chatButton = jobPage.locator(BossElementLocators.CHAT_BUTTON);
                  // 增加一个备用等待，例如等待页面主体内容加载
                 jobPage.waitForLoadState();
-                PlaywrightUtil.sleep(2); // 新增：增加短暂等待
 
-                if (!chatButton.nth(0).isVisible(new Locator.IsVisibleOptions().setTimeout(15000))) { // 修改：增加超时时间到 15秒
+                if (!chatButton.nth(0).isVisible(new Locator.IsVisibleOptions().setTimeout(5000))) {
                     Locator errorElement = jobPage.locator(BossElementLocators.ERROR_CONTENT);
                     if (errorElement.isVisible() && errorElement.textContent().contains("异常访问")) {
                         log.warn("加载岗位详情页【{}】异常访问", job.getJobName());
@@ -715,6 +725,30 @@ public class Boss {
             }
             // 更新Job对象的jobKeywordTag，包含描述和职责
             job.setJobKeywordTag(jobDescriptionAndResponsibility);
+
+            // === 新增：写入岗位详情到文档 ===
+            try {
+                String dirPath = ProjectRootResolver.rootPath + "/src/main/resources/job_details";
+                java.nio.file.Path dir = java.nio.file.Paths.get(dirPath);
+                if (!java.nio.file.Files.exists(dir)) {
+                    java.nio.file.Files.createDirectories(dir);
+                }
+                String filePath = dirPath + "/job_details.md";
+                StringBuilder sb = new StringBuilder();
+                sb.append("## 岗位名称：").append(job.getJobName()).append("\n");
+                sb.append("- 公司名称：").append(job.getCompanyName()).append("\n");
+                sb.append("- 工作地点：").append(job.getJobArea()).append("\n");
+                sb.append("- 薪资：").append(job.getSalary()).append("\n");
+                sb.append("- 招聘者：").append(job.getRecruiter()).append("\n");
+                sb.append("- 职位描述/职责/要求：\n");
+                sb.append(jobDescriptionAndResponsibility == null ? "" : jobDescriptionAndResponsibility.replaceAll("\r?\n", "\n> ")).append("\n");
+                sb.append("- 抓取时间：").append(new java.text.SimpleDateFormat("yyyy-MM-dd HH:mm:ss").format(new java.util.Date())).append("\n");
+                sb.append("---\n\n");
+                java.nio.file.Files.write(java.nio.file.Paths.get(filePath), sb.toString().getBytes(java.nio.charset.StandardCharsets.UTF_8), java.nio.file.StandardOpenOption.CREATE, java.nio.file.StandardOpenOption.APPEND);
+            } catch (Exception e) {
+                log.warn("写入岗位详情文档失败: {}", e.getMessage());
+            }
+            // === 新增结束 ===
 
             // 修改后的关键词匹配逻辑，检查岗位名称、描述或职责是否包含任一关键词
             boolean containsKeyword = false;
@@ -1478,7 +1512,7 @@ public class Boss {
                 }
 
                 // chat页面进行消息沟通
-                h5ResumeSubmission(keyword);
+                h5ResumeSubmission(keyword, page);
             } catch (Exception e) {
                 log.error("使用Playwright处理页面时出错: {}", e.getMessage(), e);
             }
