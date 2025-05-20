@@ -16,6 +16,9 @@ dst_config = 'src/main/resources/config.example.yaml'
 src_readme = 'README.md'
 dst_readme = 'README.example.md'
 
+# 新增：README.md 脱敏覆盖路径
+cover_readme = 'README.md'
+
 def desensitize(content):
     for k, v in SENSITIVE_MAP.items():
         content = re.sub(k, v, content)
@@ -34,4 +37,12 @@ def process_file(src, dst):
 
 if __name__ == '__main__':
     process_file(src_config, dst_config)
-    process_file(src_readme, dst_readme) 
+    process_file(src_readme, dst_readme)
+    # 新增：用脱敏内容覆盖 README.md
+    if os.path.exists(src_readme):
+        with open(src_readme, 'r', encoding='utf-8') as f:
+            content = f.read()
+        content = desensitize(content)
+        with open(cover_readme, 'w', encoding='utf-8') as f:
+            f.write(content)
+        print(f'已用脱敏内容覆盖 README.md') 
