@@ -692,7 +692,7 @@ public class Boss {
                 Locator jdElement = jobPage.locator(BossElementLocators.JOB_DESCRIPTION);
                  if (jdElement.isVisible()) {
                      jobDescriptionAndResponsibility = jdElement.textContent();
-                 }
+                }
             } catch (Exception e) {
                  log.info("获取职位描述失败:{}", e.getMessage());
             }
@@ -705,13 +705,13 @@ public class Boss {
                 String lowerCaseJobName = job.getJobName().toLowerCase();
                 String lowerCaseJobDescription = jobDescriptionAndResponsibility.toLowerCase();
 
-                for (String keywordItem : keywords) {
+                    for (String keywordItem : keywords) {
                     String lowerCaseKeywordItem = keywordItem.toLowerCase();
                     // 只要岗位名称、描述或职责中包含关键词之一，就视为匹配
                     if (lowerCaseJobName.contains(lowerCaseKeywordItem) || 
                         lowerCaseJobDescription.contains(lowerCaseKeywordItem)) {
-                        containsKeyword = true;
-                        break;
+                            containsKeyword = true;
+                            break;
                     }
                 }
             }
@@ -731,7 +731,7 @@ public class Boss {
             }
 
             // 关闭页面
-            jobPage.close();
+                        jobPage.close();
 
             if (config.getDebugger()) {
                 break;
@@ -798,7 +798,7 @@ public class Boss {
              log.info("已过滤:【{}】公司【{}】岗位名称在黑名单中", job.getCompanyName(), job.getJobName());
              // jobPage.close(); // 在调用 processJobDetail 的地方关闭页面
              return 0; // 返回0表示已处理（跳过）
-         }
+        }
 
         // 模拟用户浏览行为
         jobPage.evaluate("window.scrollBy(0, 300)");
@@ -841,7 +841,7 @@ public class Boss {
                  log.info("已过滤:【{}】公司【{}】岗位，AI认为不匹配", job.getCompanyName(), job.getJobName());
                  // jobPage.close(); // 在调用 processJobDetail 的地方关闭页面
                  return 0; // 返回0表示已处理（跳过）
-             }
+            }
 
             chatBtn.click();
 
@@ -861,7 +861,7 @@ public class Boss {
                         if (closeBtn.nth(0).isVisible()) {
                             closeBtn.nth(0).click();
                             // 再次尝试点击沟通按钮，因为弹窗可能阻止了第一次点击
-                             chatBtn.nth(0).click();
+                            chatBtn.nth(0).click();
                         }
                     }
                 } catch (Exception ignore) {
@@ -887,8 +887,8 @@ public class Boss {
                 if (input.isVisible(new Locator.IsVisibleOptions().setTimeout(5000))) { // 再次等待5秒确保可见
                     input.click();
                     // 检查是否是"不匹配"的弹窗，如果是则跳过
-                     Locator dialogElement = jobPage.locator(BossElementLocators.DIALOG_CONTAINER);
-                     dialogElement = dialogElement.nth(0);
+                    Locator dialogElement = jobPage.locator(BossElementLocators.DIALOG_CONTAINER);
+                    dialogElement = dialogElement.nth(0);
                      if (dialogElement.isVisible() && dialogElement.textContent().contains("不匹配")) {
                          log.info("已过滤:【{}】公司【{}】岗位，出现不匹配弹窗", job.getCompanyName(), job.getJobName());
                          // jobPage.close(); // 在调用 processJobDetail 的地方关闭页面
@@ -905,8 +905,8 @@ public class Boss {
                          // 如果AI明确返回false，则使用默认打招呼语（或者根据需要跳过）
                          log.info("AI建议不投递该岗位【{}】-【{}】", job.getCompanyName(), job.getJobName());
                          // 如果AI建议不投递，这里选择跳过
-                         return 0;
-                     }
+                        return 0;
+                    }
                     input.fill(sayHiText);
 
                     Locator sendBtn = jobPage.locator(BossElementLocators.SEND_BUTTON);
@@ -954,7 +954,7 @@ public class Boss {
                         log.info("正在投递【{}】公司，【{}】职位，招聘官:【{}】{}", company, position, recruiter,
                                 imgResume ? "发送图片简历成功！" : "");
                         // 投递成功，添加到结果列表
-                         resultList.add(job);
+                        resultList.add(job);
 
                     } else {
                         log.info("没有定位到对话框回车按钮");
@@ -1005,7 +1005,7 @@ public class Boss {
                          continue; // 跳过当前岗位，继续下一个
                     }
                 }
-            } catch (Exception e) {
+        } catch (Exception e) {
                 if (config.getDebugger()) {
                     e.printStackTrace();
                 }
@@ -1029,10 +1029,10 @@ public class Boss {
                  if (jdElement.isVisible()) {
                      jobDescriptionAndResponsibility = jdElement.textContent();
                  }
-            } catch (Exception e) {
+        } catch (Exception e) {
                  log.info("获取推荐职位描述失败:{}", e.getMessage());
-            }
-            
+    }
+
             // 如果获取到了完整描述，就使用它；否则尝试获取标签
             if(isValidString(jobDescriptionAndResponsibility)){
                 job.setJobKeywordTag(jobDescriptionAndResponsibility);
@@ -1045,14 +1045,14 @@ public class Boss {
                     StringBuilder tag = new StringBuilder();
                     for (int j = 0; j < tagCount; j++) {
                         tag.append(tagElements.nth(j).textContent()).append("·");
-                    }
+        }
                     if(tag.length() > 0){
                         jobKeywordTag = tag.substring(0, tag.length() - 1);
                     }
                 } catch (Exception e) {
                     log.info("获取推荐职位描述标签失败:{}", e.getMessage());
-                }
-                
+    }
+
                 if (isValidString(jobKeywordTag)){
                     job.setJobKeywordTag(jobKeywordTag);
                 } else {
@@ -1073,7 +1073,7 @@ public class Boss {
                         lowerCaseJobDescription.contains(lowerCaseKeywordItem)) {
                         containsKeyword = true;
                         break;
-                    }
+    }
                 }
             }
 
@@ -1089,7 +1089,7 @@ public class Boss {
             if (result < 0) {
                 jobPage.close();
                 return result;
-            }
+        }
             
             // 关闭页面
             jobPage.close();

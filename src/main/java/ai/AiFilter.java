@@ -27,7 +27,7 @@ public class AiFilter {
         this.result = result;
         this.message = message;
     }
-    
+
     /**
      * 判断是否匹配
      * @return 是否匹配
