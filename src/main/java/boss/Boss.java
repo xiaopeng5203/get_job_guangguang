@@ -1210,7 +1210,6 @@ public class Boss {
             sb.append("## 岗位名称：").append(job.getJobName()).append("\n");
             sb.append("- 公司名称：").append(job.getCompanyName()).append("\n");
             sb.append("- 工作地点：").append(job.getJobArea()).append("\n");
-            sb.append("- 详细地址：").append(job.getDetailAddress() == null ? "" : job.getDetailAddress()).append("\n");
             sb.append("- 薪资：").append(job.getSalary() == null ? "" : job.getSalary()).append("\n");
             sb.append("- 招聘者：").append(job.getRecruiter() == null ? "" : job.getRecruiter()).append("\n");
             sb.append("- 职位描述/职责/要求：\n");
