@@ -42,6 +42,20 @@ public class LiepinConfig {
      */
     private String excludeJobName;
 
+    /**
+     * 手动配置的岗位黑名单，自动跳过这些岗位
+     */
+    private List<String> manualBlackJobs;
+
+    /**
+     * 手动配置的公司黑名单，自动跳过这些公司
+     */
+    private List<String> manualBlackCompanies;
+
+    /**
+     * 手动配置的招聘者黑名单，自动跳过这些招聘者
+     */
+    private List<String> manualBlackRecruiters;
 
     @SneakyThrows
     public static LiepinConfig init() {

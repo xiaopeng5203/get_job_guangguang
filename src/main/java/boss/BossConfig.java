@@ -126,6 +126,11 @@ public class BossConfig {
 
     private Boolean h5Jobs;
 
+    /**
+     * 手动配置的招聘者黑名单，自动跳过这些招聘者
+     */
+    private List<String> manualBlackRecruiters;
+
     @SneakyThrows
     public static BossConfig init() {
         BossConfig config = JobUtils.getConfig(BossConfig.class);
