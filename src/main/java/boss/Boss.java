@@ -522,8 +522,16 @@ public class Boss {
             }
 
             if (config.getKeyFilter()) {
-                if (!jobName.toLowerCase().contains(keyword.toLowerCase())) {
-                    log.info("已过滤：岗位【{}】名称不包含关键字【{}】", jobName, keyword);
+                // 修改为：只要岗位名称包含任意一个关键词就通过
+                boolean matchAnyKeyword = false;
+                for (String k : config.getKeywords()) {
+                    if (jobName.toLowerCase().contains(k.toLowerCase())) {
+                        matchAnyKeyword = true;
+                        break;
+                    }
+                }
+                if (!matchAnyKeyword) {
+                    log.info("已过滤：岗位【{}】名称不包含任意关键字{}", jobName, config.getKeywords());
                     continue;
                 }
             }
@@ -615,8 +623,16 @@ public class Boss {
                 }
 
                 if (config.getKeyFilter()) {
-                    if (!jobName.toLowerCase().contains(keyword.toLowerCase())) {
-                        log.info("已过滤：岗位【{}】名称不包含关键字【{}】", jobName, keyword);
+                    // 修改为：只要岗位名称包含任意一个关键词就通过
+                    boolean matchAnyKeyword = false;
+                    for (String k : config.getKeywords()) {
+                        if (jobName.toLowerCase().contains(k.toLowerCase())) {
+                            matchAnyKeyword = true;
+                            break;
+                        }
+                    }
+                    if (!matchAnyKeyword) {
+                        log.info("已过滤：岗位【{}】名称不包含任意关键字{}", jobName, config.getKeywords());
                         continue;
                     }
                 }
@@ -656,8 +672,9 @@ public class Boss {
                 Locator chatButton = jobPage.locator(BossElementLocators.CHAT_BUTTON);
                  // 增加一个备用等待，例如等待页面主体内容加载
                 jobPage.waitForLoadState();
+                PlaywrightUtil.sleep(2); // 新增：增加短暂等待
 
-                if (!chatButton.nth(0).isVisible(new Locator.IsVisibleOptions().setTimeout(5000))) {
+                if (!chatButton.nth(0).isVisible(new Locator.IsVisibleOptions().setTimeout(15000))) { // 修改：增加超时时间到 15秒
                     Locator errorElement = jobPage.locator(BossElementLocators.ERROR_CONTENT);
                     if (errorElement.isVisible() && errorElement.textContent().contains("异常访问")) {
                         log.warn("加载岗位详情页【{}】异常访问", job.getJobName());
