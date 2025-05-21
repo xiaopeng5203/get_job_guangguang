@@ -980,23 +980,31 @@ public class Boss {
             }
 
             // 获取职位描述和职责
-            String jobDescriptionAndResponsibility = "";
+            String jobDuty = "";
+            String salaryInfo = "";
             try {
-                Locator jdElement = jobPage.locator(BossElementLocators.JOB_DESCRIPTION);
-                 if (jdElement.isVisible()) {
-                     jobDescriptionAndResponsibility = jdElement.textContent();
+                Locator jdElements = jobPage.locator(BossElementLocators.JOB_DESCRIPTION);
+                int jdCount = jdElements.count();
+                for (int i = 0; i < jdCount; i++) {
+                    String text = jdElements.nth(i).textContent();
+                    if (text.contains("岗位职责") || text.contains("职位描述")) {
+                        jobDuty = text;
+                    } else if (text.contains("薪资范围")) {
+                        salaryInfo = text;
+                    }
                 }
             } catch (Exception e) {
-                 log.info("获取职位描述失败:{}", e.getMessage());
+                log.info("获取职位描述失败:{}", e.getMessage());
             }
             // 更新Job对象的jobKeywordTag，包含描述和职责
-            job.setJobKeywordTag(jobDescriptionAndResponsibility);
+            job.setJobKeywordTag(jobDuty);
+            job.setSalary(salaryInfo.isEmpty() ? job.getSalary() : salaryInfo);
 
             // 修改后的关键词匹配逻辑，检查岗位名称、描述或职责是否包含任一关键词
             boolean containsKeyword = false;
             if (keywords != null && !keywords.isEmpty()) {
                 String lowerCaseJobName = job.getJobName().toLowerCase();
-                String lowerCaseJobDescription = jobDescriptionAndResponsibility.toLowerCase();
+                String lowerCaseJobDescription = jobDuty.toLowerCase();
 
                     for (String keywordItem : keywords) {
                     String lowerCaseKeywordItem = keywordItem.toLowerCase();
@@ -1292,12 +1300,17 @@ public class Boss {
             sb.append("**岗位名称：**").append(job.getJobName()).append("\n");
             sb.append("**公司名称：**").append(job.getCompanyName()).append("\n");
             sb.append("**工作地点：**").append(job.getJobArea()).append("\n");
-            sb.append("**薪资：**").append(job.getSalary() == null ? "" : job.getSalary()).append("\n");
+            // 优先写入薪资范围（如果有）
+            if (job.getSalary() != null && job.getSalary().contains("薪资范围")) {
+                sb.append("**薪资范围：**").append(job.getSalary()).append("\n");
+            } else {
+                sb.append("**薪资：**").append(job.getSalary() == null ? "" : job.getSalary()).append("\n");
+            }
             sb.append("**招聘者：**").append(job.getRecruiter() == null ? "" : job.getRecruiter()).append("\n");
             sb.append("**职位描述/职责/要求：**\n");
             // 规范化描述编号，只保留一级编号，去除多余前缀
             String rawDesc = job.getJobKeywordTag() == null ? "" : job.getJobKeywordTag();
-            String[] lines = rawDesc.split("[；;。\n]");
+            String[] lines = rawDesc.split("[；;.。\n]");
             int idx = 1;
             for (String line : lines) {
                 line = line.trim();
@@ -1375,19 +1388,24 @@ public class Boss {
             }
 
             // 尝试获取完整的职位描述和职责
-            String jobDescriptionAndResponsibility = "";
+            String jobDuty = "";
+            String salaryInfo = "";
             try {
-                Locator jdElement = jobPage.locator(BossElementLocators.JOB_DESCRIPTION);
-                 if (jdElement.isVisible()) {
-                     jobDescriptionAndResponsibility = jdElement.textContent();
-                 }
-        } catch (Exception e) {
-                 log.info("获取推荐职位描述失败:{}", e.getMessage());
-    }
-
-            // 如果获取到了完整描述，就使用它；否则尝试获取标签
-            if(isValidString(jobDescriptionAndResponsibility)){
-                job.setJobKeywordTag(jobDescriptionAndResponsibility);
+                Locator jdElements = jobPage.locator(BossElementLocators.JOB_DESCRIPTION);
+                int jdCount = jdElements.count();
+                for (int i = 0; i < jdCount; i++) {
+                    String text = jdElements.nth(i).textContent();
+                    if (text.contains("岗位职责") || text.contains("职位描述")) {
+                        jobDuty = text;
+                    } else if (text.contains("薪资范围")) {
+                        salaryInfo = text;
+                    }
+                }
+            } catch (Exception e) {
+                log.info("获取推荐职位描述失败:{}", e.getMessage());
+            }
+            if(isValidString(jobDuty)){
+                job.setJobKeywordTag(jobDuty);
             } else {
                 // 获取职位描述标签
                 String jobKeywordTag = "";
@@ -1397,20 +1415,20 @@ public class Boss {
                     StringBuilder tag = new StringBuilder();
                     for (int j = 0; j < tagCount; j++) {
                         tag.append(tagElements.nth(j).textContent()).append("·");
-        }
+                    }
                     if(tag.length() > 0){
                         jobKeywordTag = tag.substring(0, tag.length() - 1);
                     }
                 } catch (Exception e) {
                     log.info("获取推荐职位描述标签失败:{}", e.getMessage());
-    }
-
+                }
                 if (isValidString(jobKeywordTag)){
                     job.setJobKeywordTag(jobKeywordTag);
                 } else {
                     job.setJobKeywordTag("");
                 }
             }
+            job.setSalary(salaryInfo.isEmpty() ? job.getSalary() : salaryInfo);
 
             // 修改后的关键词匹配逻辑，检查岗位名称、描述或职责是否包含任一关键词
             boolean containsKeyword = false;
