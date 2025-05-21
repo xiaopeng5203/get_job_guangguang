@@ -445,6 +445,15 @@ public class Boss {
 
 
     private static void postJobByCityByPlaywright(String cityCode) {
+        // 新增：根据cityCode反查城市名
+        String cityName = null;
+        for (boss.BossEnum.CityCode cc : boss.BossEnum.CityCode.values()) {
+            if (cc.getCode().equals(cityCode)) {
+                cityName = cc.getName();
+                break;
+            }
+        }
+        if (cityName == null) cityName = cityCode; // 兜底
         String searchUrl = getSearchUrl(cityCode);
         for (String keyword : config.getKeywords()) {
             String encodedKeyword = URLEncoder.encode(keyword, StandardCharsets.UTF_8);
@@ -506,7 +515,7 @@ public class Boss {
                     }
                 }
 
-                resumeSubmission(keyword, page);
+                resumeSubmission(keyword, page, cityName);
             } catch (Exception e) {
                 log.error("页面跳转超时: {}，url: {}", e.getMessage(), url);
                 continue;
@@ -778,7 +787,7 @@ public class Boss {
 
 
     @SneakyThrows
-    private static Integer resumeSubmission(String keyword, Page page) {
+    private static Integer resumeSubmission(String keyword, Page page, String cityName) {
         // 查找所有job卡片元素
         // 使用page.locator方法获取所有匹配的元素
         Locator jobLocators = BossElementFinder.getPlaywrightLocator(page, BossElementLocators.JOB_CARD_BOX);
@@ -793,7 +802,11 @@ public class Boss {
                 String jobName = jobCard.locator(BossElementLocators.JOB_NAME).textContent();
                 String companyName = jobCard.locator(BossElementLocators.COMPANY_NAME).textContent();
                 String jobArea = jobCard.locator(BossElementLocators.JOB_AREA).textContent();
-
+                // 新增：岗位城市过滤
+                if (jobArea == null || !jobArea.contains(cityName)) {
+                    log.info("已过滤：岗位【{}】不在当前城市【{}】", jobName, cityName);
+                    continue;
+                }
 
                 Job job = new Job();
                 job.setHref(jobCard.locator(BossElementLocators.JOB_NAME).getAttribute("href"));
@@ -845,7 +858,7 @@ public class Boss {
         }
 
         // 处理每个职位详情
-        int result = processJobListDetails(jobs, keyword, page);
+        int result = processJobListDetails(jobs, keyword, page, cityName);
         if (result < 0) {
             return result;
         }
@@ -861,10 +874,15 @@ public class Boss {
      * @return 处理结果，负数表示出错
      */
     @SneakyThrows
-    private static int processJobListDetails(List<Job> jobs, String keyword, Page page) {
+    private static int processJobListDetails(List<Job> jobs, String keyword, Page page, String cityName) {
         List<String> keywords = config.getKeywords(); // 获取配置中的关键词列表
 
         for (Job job : jobs) {
+            // 新增：岗位城市过滤
+            if (job.getJobArea() == null || !job.getJobArea().contains(cityName)) {
+                log.info("已过滤：岗位【{}】不在当前城市【{}】", job.getJobName(), cityName);
+                continue;
+            }
             // 使用Playwright在新标签页中打开链接
             Page jobPage = page.context().newPage();
             try {
