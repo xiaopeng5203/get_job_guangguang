@@ -159,6 +159,13 @@ public class BossConfig {
      */
     private String cookie;
 
+    /**
+     * 是否允许重复投递（同公司同招聘者同岗位）
+     */
+    private Boolean allowRepeatApply;
+    public Boolean getAllowRepeatApply() { return allowRepeatApply; }
+    public void setAllowRepeatApply(Boolean allowRepeatApply) { this.allowRepeatApply = allowRepeatApply; }
+
     @SneakyThrows
     public static BossConfig init() {
         BossConfig config = JobUtils.getConfig(BossConfig.class);

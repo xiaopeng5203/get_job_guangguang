@@ -60,6 +60,13 @@ public class Boss {
     static String blacklistTimePath = ProjectRootResolver.rootPath + "/src/main/resources/blacklist_time.json";
     static Map<String, Map<String, Object>> blacklistTimeData = new HashMap<>();
 
+    // 1. 新增全局变量
+    static Set<String> appliedJobs = new HashSet<>();
+    static boolean allowRepeatApply = false;
+
+    // 1. 新增 data.json 路径常量
+    static String appliedJobsKey = "appliedJobs";
+
     static void loadBlacklistTime() {
         File file = new File(blacklistTimePath);
         if (!file.exists()) {
@@ -282,6 +289,8 @@ public class Boss {
         loadData(dataPath);
         loadBlacklistTime();
         loadBlackItems();
+        // 新增：加载去重配置
+        loadRepeatConfig();
         PlaywrightUtil.init();
         startDate = new Date();
         login();
@@ -577,12 +586,13 @@ public class Boss {
     private static void saveData(String path) {
         try {
             updateListData();
-            Map<String, Set<String>> data = new HashMap<>();
+            com.fasterxml.jackson.databind.ObjectMapper mapper = new com.fasterxml.jackson.databind.ObjectMapper();
+            java.util.Map<String, Object> data = new java.util.HashMap<>();
             data.put("blackCompanies", blackCompanies);
             data.put("blackRecruiters", blackRecruiters);
             data.put("blackJobs", blackJobs);
-            String json = customJsonFormat(data);
-            Files.write(Paths.get(path), json.getBytes());
+            data.put(appliedJobsKey, new java.util.ArrayList<>(appliedJobs));
+            mapper.writerWithDefaultPrettyPrinter().writeValue(new java.io.File(path), data);
         } catch (IOException e) {
             log.error("保存【{}】数据失败！", path);
         }
@@ -717,6 +727,11 @@ public class Boss {
                 .collect(Collectors.toSet());
         blackJobs = jsonObject.getJSONArray("blackJobs").toList().stream().map(Object::toString)
                 .collect(Collectors.toSet());
+        // 新增：appliedJobs
+        if (jsonObject.has("appliedJobs")) {
+            appliedJobs.clear();
+            appliedJobs.addAll(jsonObject.getJSONArray("appliedJobs").toList().stream().map(Object::toString).collect(Collectors.toSet()));
+        }
     }
 
 
@@ -903,139 +918,153 @@ public class Boss {
      */
     @SneakyThrows
     private static int processJobListDetails(List<Job> jobs, String keyword, Page page, String cityName) {
-        List<String> keywords = config.getKeywords(); // 获取配置中的关键词列表
-
+        List<String> keywords = config.getKeywords();
         for (Job job : jobs) {
-            // 新增：岗位城市过滤（更鲁棒）
-            if (!isJobInCity(job.getJobArea(), cityName)) {
-                log.info("已过滤：岗位【{}】不在当前城市【{}】", job.getJobName(), cityName);
-                continue;
-            }
-            // 使用Playwright在新标签页中打开链接
-            Page jobPage = page.context().newPage();
+            Page jobPage = null;
             try {
-                jobPage.navigate(homeUrl + job.getHref());
-                // 等待聊天按钮出现或其他判断页面加载成功的元素
-                Locator chatButton = jobPage.locator(BossElementLocators.CHAT_BUTTON);
-                 // 增加一个备用等待，例如等待页面主体内容加载
-                jobPage.waitForLoadState();
+                // 新增：岗位唯一标识
+                String uniqueKey = job.getCompanyName() + "|" + job.getRecruiter() + "|" + job.getJobName();
+                if (!allowRepeatApply && appliedJobs.contains(uniqueKey)) {
+                    log.info("已投递过该岗位，跳过：{}", uniqueKey);
+                    continue;
+                }
+                if (!isJobInCity(job.getJobArea(), cityName)) {
+                    log.info("已过滤：岗位【{}】不在当前城市【{}】", job.getJobName(), cityName);
+                    continue;
+                }
+                jobPage = page.context().newPage();
+                try {
+                    jobPage.navigate(homeUrl + job.getHref());
+                    // 等待聊天按钮出现或其他判断页面加载成功的元素
+                    Locator chatButton = jobPage.locator(BossElementLocators.CHAT_BUTTON);
+                     // 增加一个备用等待，例如等待页面主体内容加载
+                    jobPage.waitForLoadState();
 
-                // 智能重试查找沟通按钮
-                boolean found = false;
-                int maxRetry = 3;
-                for (int retry = 0; retry < maxRetry; retry++) {
-                    try {
-                        if (chatButton.nth(0).isVisible(new Locator.IsVisibleOptions().setTimeout(20000))) { // 20秒
-                            found = true;
-                            break;
+                    // 智能重试查找沟通按钮
+                    boolean found = false;
+                    int maxRetry = 3;
+                    for (int retry = 0; retry < maxRetry; retry++) {
+                        try {
+                            if (chatButton.nth(0).isVisible(new Locator.IsVisibleOptions().setTimeout(20000))) { // 20秒
+                                found = true;
+                                break;
+                            }
+                        } catch (Exception e) {
+                            // 忽略异常
                         }
-                    } catch (Exception e) {
-                        // 忽略异常
+                        if (!found) {
+                            jobPage.reload(); // 刷新页面
+                            PlaywrightUtil.sleep(3 + retry * 2); // 每次重试等待更久
+                        }
                     }
                     if (!found) {
-                        jobPage.reload(); // 刷新页面
-                        PlaywrightUtil.sleep(3 + retry * 2); // 每次重试等待更久
+                        Locator errorElement = jobPage.locator(BossElementLocators.ERROR_CONTENT);
+                        if (errorElement.isVisible() && errorElement.textContent().contains("异常访问")) {
+                            log.warn("加载岗位详情页【{}】异常访问", job.getJobName());
+                            jobPage.close();
+                            return -2; // 返回特定错误码表示异常访问
+                        } else {
+                            log.warn("加载岗位详情页【{}】超时或未找到沟通按钮", job.getJobName());
+                            jobPage.close();
+                            continue; // 跳过当前岗位，继续下一个
+                        }
                     }
+
+                    if (!chatButton.nth(0).isVisible(new Locator.IsVisibleOptions().setTimeout(5000))) {
+                        Locator errorElement = jobPage.locator(BossElementLocators.ERROR_CONTENT);
+                        if (errorElement.isVisible() && errorElement.textContent().contains("异常访问")) {
+                            log.warn("加载岗位详情页【{}】异常访问", job.getJobName());
+                            jobPage.close();
+                            return -2; // 返回特定错误码表示异常访问
+                        } else {
+                             log.warn("加载岗位详情页【{}】超时或未找到沟通按钮", job.getJobName());
+                             jobPage.close();
+                             continue; // 跳过当前岗位，继续下一个
+                        }
+                    }
+                } catch (Exception e) {
+                    if (config.getDebugger()) {
+                        e.printStackTrace();
+                    }
+                    log.error("加载岗位详情页【{}】失败: {}", job.getJobName(), e.getMessage());
+                    jobPage.close();
+                    continue;
                 }
-                if (!found) {
-                    Locator errorElement = jobPage.locator(BossElementLocators.ERROR_CONTENT);
-                    if (errorElement.isVisible() && errorElement.textContent().contains("异常访问")) {
-                        log.warn("加载岗位详情页【{}】异常访问", job.getJobName());
-                        jobPage.close();
-                        return -2; // 返回特定错误码表示异常访问
-                    } else {
-                        log.warn("加载岗位详情页【{}】超时或未找到沟通按钮", job.getJobName());
-                        jobPage.close();
-                        continue; // 跳过当前岗位，继续下一个
+
+                // 过滤不活跃HR
+                if (isDeadHR(jobPage)) {
+                    jobPage.close();
+                    log.info("已过滤【{}】公司【{}】岗位，该HR不活跃", job.getCompanyName(), job.getJobName());
+                    PlaywrightUtil.sleep(1);
+                    continue;
+                }
+
+                // 获取职位描述和职责
+                String jobDuty = "";
+                String salaryInfo = "";
+                try {
+                    Locator jdElements = jobPage.locator(BossElementLocators.JOB_DESCRIPTION);
+                    int jdCount = jdElements.count();
+                    for (int i = 0; i < jdCount; i++) {
+                        String text = jdElements.nth(i).textContent();
+                        if (text.contains("岗位职责") || text.contains("职位描述")) {
+                            jobDuty = text;
+                        } else if (text.contains("薪资范围")) {
+                            salaryInfo = text;
+                        }
+                    }
+                } catch (Exception e) {
+                    log.info("获取职位描述失败:{}", e.getMessage());
+                }
+                // 更新Job对象的jobKeywordTag，包含描述和职责
+                job.setJobKeywordTag(jobDuty);
+                job.setSalary(salaryInfo.isEmpty() ? job.getSalary() : salaryInfo);
+
+                // 修改后的关键词匹配逻辑，检查岗位名称、描述或职责是否包含任一关键词
+                boolean containsKeyword = false;
+                if (keywords != null && !keywords.isEmpty()) {
+                    String lowerCaseJobName = job.getJobName().toLowerCase();
+                    String lowerCaseJobDescription = jobDuty.toLowerCase();
+
+                        for (String keywordItem : keywords) {
+                        String lowerCaseKeywordItem = keywordItem.toLowerCase();
+                        // 只要岗位名称、描述或职责中包含关键词之一，就视为匹配
+                        if (lowerCaseJobName.contains(lowerCaseKeywordItem) || 
+                            lowerCaseJobDescription.contains(lowerCaseKeywordItem)) {
+                                containsKeyword = true;
+                                break;
+                        }
                     }
                 }
 
-                if (!chatButton.nth(0).isVisible(new Locator.IsVisibleOptions().setTimeout(5000))) {
-                    Locator errorElement = jobPage.locator(BossElementLocators.ERROR_CONTENT);
-                    if (errorElement.isVisible() && errorElement.textContent().contains("异常访问")) {
-                        log.warn("加载岗位详情页【{}】异常访问", job.getJobName());
-                        jobPage.close();
-                        return -2; // 返回特定错误码表示异常访问
-                    } else {
-                         log.warn("加载岗位详情页【{}】超时或未找到沟通按钮", job.getJobName());
-                         jobPage.close();
-                         continue; // 跳过当前岗位，继续下一个
-                    }
+                // 如果不包含任何关键字，则跳过此职位
+                if (!keywords.isEmpty() && !containsKeyword) {
+                    log.info("已过滤:【{}】公司【{}】岗位，名称或描述不包含任何关键字", job.getCompanyName(), job.getJobName());
+                    jobPage.close();
+                    continue;
                 }
-            } catch (Exception e) {
+
+                // 处理职位详情页 (薪资过滤和黑名单公司过滤等)
+                int result = processJobDetail(jobPage, job, keyword);
+                if (result < 0) {
+                    jobPage.close();
+                    return result;
+                }
+
+                // 关闭页面
+                            jobPage.close();
+
                 if (config.getDebugger()) {
-                    e.printStackTrace();
+                    break;
                 }
-                log.error("加载岗位详情页【{}】失败: {}", job.getJobName(), e.getMessage());
-                jobPage.close();
-                continue;
-            }
-
-            // 过滤不活跃HR
-            if (isDeadHR(jobPage)) {
-                jobPage.close();
-                log.info("已过滤【{}】公司【{}】岗位，该HR不活跃", job.getCompanyName(), job.getJobName());
-                PlaywrightUtil.sleep(1);
-                continue;
-            }
-
-            // 获取职位描述和职责
-            String jobDuty = "";
-            String salaryInfo = "";
-            try {
-                Locator jdElements = jobPage.locator(BossElementLocators.JOB_DESCRIPTION);
-                int jdCount = jdElements.count();
-                for (int i = 0; i < jdCount; i++) {
-                    String text = jdElements.nth(i).textContent();
-                    if (text.contains("岗位职责") || text.contains("职位描述")) {
-                        jobDuty = text;
-                    } else if (text.contains("薪资范围")) {
-                        salaryInfo = text;
-                    }
+                if (result == 0) {
+                    // 投递成功，记录唯一标识
+                    appliedJobs.add(uniqueKey);
+                    saveAppliedJobs();
                 }
             } catch (Exception e) {
-                log.info("获取职位描述失败:{}", e.getMessage());
-            }
-            // 更新Job对象的jobKeywordTag，包含描述和职责
-            job.setJobKeywordTag(jobDuty);
-            job.setSalary(salaryInfo.isEmpty() ? job.getSalary() : salaryInfo);
-
-            // 修改后的关键词匹配逻辑，检查岗位名称、描述或职责是否包含任一关键词
-            boolean containsKeyword = false;
-            if (keywords != null && !keywords.isEmpty()) {
-                String lowerCaseJobName = job.getJobName().toLowerCase();
-                String lowerCaseJobDescription = jobDuty.toLowerCase();
-
-                    for (String keywordItem : keywords) {
-                    String lowerCaseKeywordItem = keywordItem.toLowerCase();
-                    // 只要岗位名称、描述或职责中包含关键词之一，就视为匹配
-                    if (lowerCaseJobName.contains(lowerCaseKeywordItem) || 
-                        lowerCaseJobDescription.contains(lowerCaseKeywordItem)) {
-                            containsKeyword = true;
-                            break;
-                    }
-                }
-            }
-
-            // 如果不包含任何关键字，则跳过此职位
-            if (!keywords.isEmpty() && !containsKeyword) {
-                log.info("已过滤:【{}】公司【{}】岗位，名称或描述不包含任何关键字", job.getCompanyName(), job.getJobName());
-                jobPage.close();
-                continue;
-            }
-
-            // 处理职位详情页 (薪资过滤和黑名单公司过滤等)
-            int result = processJobDetail(jobPage, job, keyword);
-            if (result < 0) {
-                jobPage.close();
-                return result;
-            }
-
-            // 关闭页面
-                        jobPage.close();
-
-            if (config.getDebugger()) {
-                break;
+                log.error("处理岗位详情页异常：公司[{}] 岗位[{}] 招聘者[{}]，异常：{}", job.getCompanyName(), job.getJobName(), job.getRecruiter(), e.getMessage());
+                if (jobPage != null) jobPage.close();
             }
         }
         return 0;
@@ -1346,126 +1375,142 @@ public class Boss {
     @SneakyThrows
     private static int processRecommendJobs() {
         List<String> keywords = config.getKeywords();
-
         for (Job job : recommendJobs) {
-            // 使用Playwright在新标签页中打开链接
-            Page jobPage = PlaywrightUtil.getPageObject().context().newPage();
+            Page jobPage = null;
             try {
-                jobPage.navigate(homeUrl + job.getHref());
-                // 等待聊天按钮出现
-                Locator chatButton = jobPage.locator(BossElementLocators.CHAT_BUTTON);
-                // 增加一个备用等待，例如等待页面主体内容加载
-                 jobPage.waitForLoadState();
-
-                if (!chatButton.nth(0).isVisible(new Locator.IsVisibleOptions().setTimeout(5000))) {
-                    Locator errorElement = jobPage.locator(BossElementLocators.ERROR_CONTENT);
-                    if (errorElement.isVisible() && errorElement.textContent().contains("异常访问")) {
-                         log.warn("加载推荐岗位详情页【{}】异常访问", job.getJobName());
-                        jobPage.close();
-                        return -2; // 返回特定错误码表示异常访问
-                    }
-                    else {
-                         log.warn("加载推荐岗位详情页【{}】超时或未找到沟通按钮", job.getJobName());
-                         jobPage.close();
-                         continue; // 跳过当前岗位，继续下一个
-                    }
+                // 新增：岗位唯一标识
+                String uniqueKey = job.getCompanyName() + "|" + job.getRecruiter() + "|" + job.getJobName();
+                if (!allowRepeatApply && appliedJobs.contains(uniqueKey)) {
+                    log.info("已投递过该岗位，跳过：{}", uniqueKey);
+                    continue;
                 }
-        } catch (Exception e) {
-                if (config.getDebugger()) {
-                    e.printStackTrace();
-                }
-                log.error("加载推荐岗位详情页【{}】失败: {}", job.getJobName(), e.getMessage());
-                jobPage.close();
-                continue;
-            }
-
-            // 过滤不活跃HR
-            if (isDeadHR(jobPage)) {
-                jobPage.close();
-                log.info("已过滤【{}】公司【{}】推荐岗位，该HR不活跃", job.getCompanyName(), job.getJobName());
-                PlaywrightUtil.sleep(1);
-                continue;
-            }
-
-            // 尝试获取完整的职位描述和职责
-            String jobDuty = "";
-            String salaryInfo = "";
-            try {
-                Locator jdElements = jobPage.locator(BossElementLocators.JOB_DESCRIPTION);
-                int jdCount = jdElements.count();
-                for (int i = 0; i < jdCount; i++) {
-                    String text = jdElements.nth(i).textContent();
-                    if (text.contains("岗位职责") || text.contains("职位描述")) {
-                        jobDuty = text;
-                    } else if (text.contains("薪资范围")) {
-                        salaryInfo = text;
-                    }
-                }
-            } catch (Exception e) {
-                log.info("获取推荐职位描述失败:{}", e.getMessage());
-            }
-            if(isValidString(jobDuty)){
-                job.setJobKeywordTag(jobDuty);
-            } else {
-                // 获取职位描述标签
-                String jobKeywordTag = "";
+                // 使用Playwright在新标签页中打开链接
+                jobPage = PlaywrightUtil.getPageObject().context().newPage();
                 try {
-                    Locator tagElements = jobPage.locator(JOB_KEYWORD_LIST);
-                    int tagCount = tagElements.count();
-                    StringBuilder tag = new StringBuilder();
-                    for (int j = 0; j < tagCount; j++) {
-                        tag.append(tagElements.nth(j).textContent()).append("·");
+                    jobPage.navigate(homeUrl + job.getHref());
+                    // 等待聊天按钮出现
+                    Locator chatButton = jobPage.locator(BossElementLocators.CHAT_BUTTON);
+                    // 增加一个备用等待，例如等待页面主体内容加载
+                     jobPage.waitForLoadState();
+
+                    if (!chatButton.nth(0).isVisible(new Locator.IsVisibleOptions().setTimeout(5000))) {
+                        Locator errorElement = jobPage.locator(BossElementLocators.ERROR_CONTENT);
+                        if (errorElement.isVisible() && errorElement.textContent().contains("异常访问")) {
+                             log.warn("加载推荐岗位详情页【{}】异常访问", job.getJobName());
+                            jobPage.close();
+                            return -2; // 返回特定错误码表示异常访问
+                        }
+                        else {
+                             log.warn("加载推荐岗位详情页【{}】超时或未找到沟通按钮", job.getJobName());
+                             jobPage.close();
+                             continue; // 跳过当前岗位，继续下一个
+                        }
                     }
-                    if(tag.length() > 0){
-                        jobKeywordTag = tag.substring(0, tag.length() - 1);
+            } catch (Exception e) {
+                    if (config.getDebugger()) {
+                        e.printStackTrace();
+                    }
+                    log.error("加载推荐岗位详情页【{}】失败: {}", job.getJobName(), e.getMessage());
+                    jobPage.close();
+                    continue;
+                }
+
+                // 过滤不活跃HR
+                if (isDeadHR(jobPage)) {
+                    jobPage.close();
+                    log.info("已过滤【{}】公司【{}】推荐岗位，该HR不活跃", job.getCompanyName(), job.getJobName());
+                    PlaywrightUtil.sleep(1);
+                    continue;
+                }
+
+                // 尝试获取完整的职位描述和职责
+                String jobDuty = "";
+                String salaryInfo = "";
+                try {
+                    Locator jdElements = jobPage.locator(BossElementLocators.JOB_DESCRIPTION);
+                    int jdCount = jdElements.count();
+                    for (int i = 0; i < jdCount; i++) {
+                        String text = jdElements.nth(i).textContent();
+                        if (text.contains("岗位职责") || text.contains("职位描述")) {
+                            jobDuty = text;
+                        } else if (text.contains("薪资范围")) {
+                            salaryInfo = text;
+                        }
                     }
                 } catch (Exception e) {
-                    log.info("获取推荐职位描述标签失败:{}", e.getMessage());
+                    log.info("获取推荐职位描述失败:{}", e.getMessage());
                 }
-                if (isValidString(jobKeywordTag)){
-                    job.setJobKeywordTag(jobKeywordTag);
+                if(isValidString(jobDuty)){
+                    job.setJobKeywordTag(jobDuty);
                 } else {
-                    job.setJobKeywordTag("");
+                    // 获取职位描述标签
+                    String jobKeywordTag = "";
+                    try {
+                        Locator tagElements = jobPage.locator(JOB_KEYWORD_LIST);
+                        int tagCount = tagElements.count();
+                        StringBuilder tag = new StringBuilder();
+                        for (int j = 0; j < tagCount; j++) {
+                            tag.append(tagElements.nth(j).textContent()).append("·");
+                        }
+                        if(tag.length() > 0){
+                            jobKeywordTag = tag.substring(0, tag.length() - 1);
+                        }
+                    } catch (Exception e) {
+                        log.info("获取推荐职位描述标签失败:{}", e.getMessage());
+                    }
+                    if (isValidString(jobKeywordTag)){
+                        job.setJobKeywordTag(jobKeywordTag);
+                    } else {
+                        job.setJobKeywordTag("");
+                    }
                 }
-            }
-            job.setSalary(salaryInfo.isEmpty() ? job.getSalary() : salaryInfo);
+                job.setSalary(salaryInfo.isEmpty() ? job.getSalary() : salaryInfo);
 
-            // 修改后的关键词匹配逻辑，检查岗位名称、描述或职责是否包含任一关键词
-            boolean containsKeyword = false;
-            if (keywords != null && !keywords.isEmpty()) {
-                String lowerCaseJobName = job.getJobName().toLowerCase();
-                String lowerCaseJobDescription = job.getJobKeywordTag().toLowerCase();
+                // 修改后的关键词匹配逻辑，检查岗位名称、描述或职责是否包含任一关键词
+                boolean containsKeyword = false;
+                if (keywords != null && !keywords.isEmpty()) {
+                    String lowerCaseJobName = job.getJobName().toLowerCase();
+                    String lowerCaseJobDescription = job.getJobKeywordTag().toLowerCase();
 
-                for (String keywordItem : keywords) {
-                    String lowerCaseKeywordItem = keywordItem.toLowerCase();
-                    // 只要岗位名称、描述或职责中包含关键词之一，就视为匹配
-                    if (lowerCaseJobName.contains(lowerCaseKeywordItem) || 
-                        lowerCaseJobDescription.contains(lowerCaseKeywordItem)) {
-                        containsKeyword = true;
-                        break;
+                    for (String keywordItem : keywords) {
+                        String lowerCaseKeywordItem = keywordItem.toLowerCase();
+                        // 只要岗位名称、描述或职责中包含关键词之一，就视为匹配
+                        if (lowerCaseJobName.contains(lowerCaseKeywordItem) || 
+                            lowerCaseJobDescription.contains(lowerCaseKeywordItem)) {
+                            containsKeyword = true;
+                            break;
     }
                 }
             }
 
-            // 如果不包含任何关键字，则跳过此职位
-            if (!keywords.isEmpty() && !containsKeyword) {
-                log.info("已过滤:【{}】公司【{}】推荐岗位，名称或描述不包含任何关键字", job.getCompanyName(), job.getJobName());
-                jobPage.close();
-                continue;
+                // 如果不包含任何关键字，则跳过此职位
+                if (!keywords.isEmpty() && !containsKeyword) {
+                    log.info("已过滤:【{}】公司【{}】推荐岗位，名称或描述不包含任何关键字", job.getCompanyName(), job.getJobName());
+                    jobPage.close();
+                    continue;
+                }
+
+                // 处理职位详情页 (薪资过滤和黑名单公司过滤等)
+                int result = processJobDetail(jobPage, job, null);
+                if (result < 0) {
+                    jobPage.close();
+                    return result;
             }
-
-            // 处理职位详情页 (薪资过滤和黑名单公司过滤等)
-            int result = processJobDetail(jobPage, job, null);
-            if (result < 0) {
+                
+                // 关闭页面
                 jobPage.close();
-                return result;
-        }
-            
-            // 关闭页面
-            jobPage.close();
 
-            if (config.getDebugger()) {
-                break;
+                if (config.getDebugger()) {
+                    break;
+                }
+                if (result == 0) {
+                    // 投递成功，记录唯一标识
+                    appliedJobs.add(uniqueKey);
+                    saveAppliedJobs();
+                }
+            } catch (Exception e) {
+                log.error("处理推荐岗位详情页异常：公司[{}] 岗位[{}] 招聘者[{}]，异常：{}", job.getCompanyName(), job.getJobName(), job.getRecruiter(), e.getMessage());
+                if (jobPage != null) jobPage.close();
             }
         }
         return 0;
@@ -2018,22 +2063,31 @@ public class Boss {
     static boolean isInBlackList(List<BlackItem> list, String name, String type, String jobName) {
         String typeKey = type.equals("公司") ? "companies" : type.equals("岗位") ? "jobs" : "recruiters";
         for (BlackItem item : list) {
-            if (name != null && name.contains(item.name)) {
-                // 首次命中记录 addTime 并持久化
-                if (item.days != null && item.addTime == null) {
-                    item.addTime = System.currentTimeMillis();
-                    Map<String, Object> map = blacklistTimeData.getOrDefault(typeKey, new HashMap<>());
-                    Map<String, Object> v = new HashMap<>();
-                    v.put("addTime", item.addTime);
-                    v.put("days", item.days);
-                    map.put(item.name, v);
-                    blacklistTimeData.put(typeKey, map);
-                    saveBlacklistTime();
+            if (name != null && item.name != null) {
+                String n = name;
+                String i = item.name;
+                if ("公司".equals(type)) {
+                    // 去除常见公司后缀和括号、空格
+                    n = n.replaceAll("[（）()\s]", "").replaceAll("(有限责任公司|有限公司|公司|集团|控股|股份|分公司|子公司)", "");
+                    i = i.replaceAll("[（）()\s]", "").replaceAll("(有限责任公司|有限公司|公司|集团|控股|股份|分公司|子公司)", "");
                 }
-                if (item.isExpired()) continue;
-                long remain = item.remainDays();
-                log.info("已过滤：{}黑名单命中【{}】，剩余有效天数：{}，岗位【{}】", type, item.name, remain == Long.MAX_VALUE ? "永久" : remain + "天", jobName);
-                return true;
+                if (n.contains(i)) {
+                    // 首次命中记录 addTime 并持久化
+                    if (item.days != null && item.addTime == null) {
+                        item.addTime = System.currentTimeMillis();
+                        Map<String, Object> map = blacklistTimeData.getOrDefault(typeKey, new HashMap<>());
+                        Map<String, Object> v = new HashMap<>();
+                        v.put("addTime", item.addTime);
+                        v.put("days", item.days);
+                        map.put(item.name, v);
+                        blacklistTimeData.put(typeKey, map);
+                        saveBlacklistTime();
+                    }
+                    if (item.isExpired()) continue;
+                    long remain = item.remainDays();
+                    log.info("已过滤：{}黑名单命中【{}】，剩余有效天数：{}，岗位【{}】", type, item.name, remain == Long.MAX_VALUE ? "永久" : remain + "天", jobName);
+                    return true;
+                }
             }
         }
         return false;
@@ -2092,6 +2146,35 @@ public class Boss {
         String area = jobArea.replaceAll("[市区县]", "");
         String city = cityName.replaceAll("[市区县]", "");
         return area.contains(city) || city.contains(area);
+    }
+
+    // 3. 新增方法：加载去重配置
+    static void loadRepeatConfig() {
+        try {
+            com.fasterxml.jackson.databind.ObjectMapper mapper = new com.fasterxml.jackson.databind.ObjectMapper();
+            java.util.Map<String, Object> data = mapper.readValue(new java.io.File(dataPath), java.util.HashMap.class);
+            allowRepeatApply = config.getAllowRepeatApply() != null && config.getAllowRepeatApply();
+            appliedJobs.clear();
+            if (data.get(appliedJobsKey) instanceof java.util.List) {
+                for (Object o : (java.util.List<?>) data.get(appliedJobsKey)) {
+                    if (o != null) appliedJobs.add(o.toString());
+                }
+            }
+        } catch (Exception e) {
+            log.warn("加载appliedJobs失败: {}", e.getMessage());
+        }
+    }
+
+    // 4. 新增方法：保存 appliedJobs 到 data.json
+    static void saveAppliedJobs() {
+        try {
+            com.fasterxml.jackson.databind.ObjectMapper mapper = new com.fasterxml.jackson.databind.ObjectMapper();
+            java.util.Map<String, Object> data = mapper.readValue(new java.io.File(dataPath), java.util.HashMap.class);
+            data.put(appliedJobsKey, new java.util.ArrayList<>(appliedJobs));
+            mapper.writerWithDefaultPrettyPrinter().writeValue(new java.io.File(dataPath), data);
+        } catch (Exception e) {
+            log.warn("保存appliedJobs失败: {}", e.getMessage());
+        }
     }
 
 }
