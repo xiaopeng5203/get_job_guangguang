@@ -310,10 +310,19 @@ public class Boss {
     }
 
     private static void printResult() {
-        String message = String.format("\nBoss投递完成，共发起%d个聊天，用时%s", resultList.size(),
-                formatDuration(startDate, new Date()));
+        StringBuilder sb = new StringBuilder();
+        sb.append("【Boss直聘】今日投递汇总\n");
+        sb.append(String.format("共发起 %d 个聊天，用时 %s\n", resultList.size(), formatDuration(startDate, new Date())));
+        sb.append("-------------------------\n");
+        int idx = 1;
+        for (Job job : resultList) {
+            sb.append(String.format("%d. %s @ %s | %s | %s\n", idx++, job.getJobName(), job.getCompanyName(), job.getSalary() == null ? "" : job.getSalary(), job.getJobArea() == null ? "" : job.getJobArea()));
+        }
+        sb.append("-------------------------\n");
+        sb.append("祝你早日找到心仪的工作！");
+        String message = sb.toString();
         log.info(message);
-        sendMessageByTime(message);
+        utils.Bot.sendBark(message); // 统一Bark推送格式
         saveData(dataPath);
         resultList.clear();
         if (!config.getDebugger()) {
@@ -543,7 +552,26 @@ public class Boss {
                     log.error("收集岗位卡片失败: {}", e.getMessage());
                 }
                 // 统一处理所有岗位
-                processJobListDetails(jobs, keyword, page, cityName);
+                int result = processJobListDetails(jobs, keyword, page, cityName);
+                if (result == -1) { // 达到沟通上限
+                    // 先关闭所有页面和浏览器
+                    try { PlaywrightUtil.close(); } catch (Exception ignore) {}
+                    // 构造推送内容
+                    StringBuilder sb = new StringBuilder();
+                    sb.append("【Boss直聘】今日投递汇总\n");
+                    sb.append(String.format("共发起 %d 个聊天，用时 %s\n", resultList.size(), formatDuration(startDate, new Date())));
+                    sb.append("-------------------------\n");
+                    int idx = 1;
+                    for (Job job : resultList) {
+                        sb.append(String.format("%d. %s @ %s | %s | %s\n", idx++, job.getJobName(), job.getCompanyName(), job.getSalary() == null ? "" : job.getSalary(), job.getJobArea() == null ? "" : job.getJobArea()));
+                    }
+                    sb.append("-------------------------\n");
+                    sb.append("祝你早日找到心仪的工作！");
+                    String barkMsg = sb.toString();
+                    utils.Bot.sendBark(barkMsg);
+                    log.info(barkMsg);
+                    System.exit(0);
+                }
             } catch (Exception e) {
                 log.error("页面跳转超时: {}，url: {}", e.getMessage(), url);
                 continue;
@@ -929,16 +957,16 @@ public class Boss {
                     continue;
                 }
                 if (!isJobInCity(job.getJobArea(), cityName)) {
-                    log.info("已过滤：岗位【{}】不在当前城市【{}】", job.getJobName(), cityName);
-                    continue;
-                }
+                log.info("已过滤：岗位【{}】不在当前城市【{}】", job.getJobName(), cityName);
+                continue;
+            }
                 jobPage = page.context().newPage();
-                try {
-                    jobPage.navigate(homeUrl + job.getHref());
-                    // 等待聊天按钮出现或其他判断页面加载成功的元素
-                    Locator chatButton = jobPage.locator(BossElementLocators.CHAT_BUTTON);
-                     // 增加一个备用等待，例如等待页面主体内容加载
-                    jobPage.waitForLoadState();
+            try {
+                jobPage.navigate(homeUrl + job.getHref());
+                // 等待聊天按钮出现或其他判断页面加载成功的元素
+                Locator chatButton = jobPage.locator(BossElementLocators.CHAT_BUTTON);
+                 // 增加一个备用等待，例如等待页面主体内容加载
+                jobPage.waitForLoadState();
 
                     // 智能重试查找沟通按钮
                     boolean found = false;
@@ -970,39 +998,39 @@ public class Boss {
                         }
                     }
 
-                    if (!chatButton.nth(0).isVisible(new Locator.IsVisibleOptions().setTimeout(5000))) {
-                        Locator errorElement = jobPage.locator(BossElementLocators.ERROR_CONTENT);
-                        if (errorElement.isVisible() && errorElement.textContent().contains("异常访问")) {
-                            log.warn("加载岗位详情页【{}】异常访问", job.getJobName());
-                            jobPage.close();
-                            return -2; // 返回特定错误码表示异常访问
-                        } else {
-                             log.warn("加载岗位详情页【{}】超时或未找到沟通按钮", job.getJobName());
-                             jobPage.close();
-                             continue; // 跳过当前岗位，继续下一个
-                        }
+                if (!chatButton.nth(0).isVisible(new Locator.IsVisibleOptions().setTimeout(5000))) {
+                    Locator errorElement = jobPage.locator(BossElementLocators.ERROR_CONTENT);
+                    if (errorElement.isVisible() && errorElement.textContent().contains("异常访问")) {
+                        log.warn("加载岗位详情页【{}】异常访问", job.getJobName());
+                        jobPage.close();
+                        return -2; // 返回特定错误码表示异常访问
+                    } else {
+                         log.warn("加载岗位详情页【{}】超时或未找到沟通按钮", job.getJobName());
+                         jobPage.close();
+                         continue; // 跳过当前岗位，继续下一个
                     }
-                } catch (Exception e) {
-                    if (config.getDebugger()) {
-                        e.printStackTrace();
-                    }
-                    log.error("加载岗位详情页【{}】失败: {}", job.getJobName(), e.getMessage());
-                    jobPage.close();
-                    continue;
                 }
-
-                // 过滤不活跃HR
-                if (isDeadHR(jobPage)) {
-                    jobPage.close();
-                    log.info("已过滤【{}】公司【{}】岗位，该HR不活跃", job.getCompanyName(), job.getJobName());
-                    PlaywrightUtil.sleep(1);
-                    continue;
+            } catch (Exception e) {
+                if (config.getDebugger()) {
+                    e.printStackTrace();
                 }
+                log.error("加载岗位详情页【{}】失败: {}", job.getJobName(), e.getMessage());
+                jobPage.close();
+                continue;
+            }
 
-                // 获取职位描述和职责
+            // 过滤不活跃HR
+            if (isDeadHR(jobPage)) {
+                jobPage.close();
+                log.info("已过滤【{}】公司【{}】岗位，该HR不活跃", job.getCompanyName(), job.getJobName());
+                PlaywrightUtil.sleep(1);
+                continue;
+            }
+
+            // 获取职位描述和职责
                 String jobDuty = "";
                 String salaryInfo = "";
-                try {
+            try {
                     Locator jdElements = jobPage.locator(BossElementLocators.JOB_DESCRIPTION);
                     int jdCount = jdElements.count();
                     for (int i = 0; i < jdCount; i++) {
@@ -1012,50 +1040,50 @@ public class Boss {
                         } else if (text.contains("薪资范围")) {
                             salaryInfo = text;
                         }
-                    }
-                } catch (Exception e) {
-                    log.info("获取职位描述失败:{}", e.getMessage());
                 }
-                // 更新Job对象的jobKeywordTag，包含描述和职责
+            } catch (Exception e) {
+                 log.info("获取职位描述失败:{}", e.getMessage());
+            }
+            // 更新Job对象的jobKeywordTag，包含描述和职责
                 job.setJobKeywordTag(jobDuty);
                 job.setSalary(salaryInfo.isEmpty() ? job.getSalary() : salaryInfo);
 
-                // 修改后的关键词匹配逻辑，检查岗位名称、描述或职责是否包含任一关键词
-                boolean containsKeyword = false;
-                if (keywords != null && !keywords.isEmpty()) {
-                    String lowerCaseJobName = job.getJobName().toLowerCase();
+            // 修改后的关键词匹配逻辑，检查岗位名称、描述或职责是否包含任一关键词
+            boolean containsKeyword = false;
+            if (keywords != null && !keywords.isEmpty()) {
+                String lowerCaseJobName = job.getJobName().toLowerCase();
                     String lowerCaseJobDescription = jobDuty.toLowerCase();
 
-                        for (String keywordItem : keywords) {
-                        String lowerCaseKeywordItem = keywordItem.toLowerCase();
-                        // 只要岗位名称、描述或职责中包含关键词之一，就视为匹配
-                        if (lowerCaseJobName.contains(lowerCaseKeywordItem) || 
-                            lowerCaseJobDescription.contains(lowerCaseKeywordItem)) {
-                                containsKeyword = true;
-                                break;
-                        }
+                    for (String keywordItem : keywords) {
+                    String lowerCaseKeywordItem = keywordItem.toLowerCase();
+                    // 只要岗位名称、描述或职责中包含关键词之一，就视为匹配
+                    if (lowerCaseJobName.contains(lowerCaseKeywordItem) || 
+                        lowerCaseJobDescription.contains(lowerCaseKeywordItem)) {
+                            containsKeyword = true;
+                            break;
                     }
                 }
+            }
 
-                // 如果不包含任何关键字，则跳过此职位
-                if (!keywords.isEmpty() && !containsKeyword) {
-                    log.info("已过滤:【{}】公司【{}】岗位，名称或描述不包含任何关键字", job.getCompanyName(), job.getJobName());
-                    jobPage.close();
-                    continue;
-                }
+            // 如果不包含任何关键字，则跳过此职位
+            if (!keywords.isEmpty() && !containsKeyword) {
+                log.info("已过滤:【{}】公司【{}】岗位，名称或描述不包含任何关键字", job.getCompanyName(), job.getJobName());
+                jobPage.close();
+                continue;
+            }
 
-                // 处理职位详情页 (薪资过滤和黑名单公司过滤等)
-                int result = processJobDetail(jobPage, job, keyword);
-                if (result < 0) {
-                    jobPage.close();
-                    return result;
-                }
+            // 处理职位详情页 (薪资过滤和黑名单公司过滤等)
+            int result = processJobDetail(jobPage, job, keyword);
+            if (result < 0) {
+                jobPage.close();
+                return result;
+            }
 
-                // 关闭页面
-                            jobPage.close();
+            // 关闭页面
+                        jobPage.close();
 
-                if (config.getDebugger()) {
-                    break;
+            if (config.getDebugger()) {
+                break;
                 }
                 if (result == 0) {
                     // 投递成功，记录唯一标识
@@ -1349,9 +1377,9 @@ public class Boss {
                 line = line.replaceAll("^\\d+[、.\\s]*", "");
                 if (!line.isEmpty()) {
                     sb.append(idx).append("、").append(line).append("\n");
-                    idx++;
+                        idx++;
+                    }
                 }
-            }
             sb.append("**抓取时间：**").append(new java.text.SimpleDateFormat("yyyy-MM-dd HH:mm:ss").format(new java.util.Date())).append("\n");
             // AI打招呼语加粗
             if (sayHiText != null && !sayHiText.isEmpty()) {
@@ -1384,49 +1412,49 @@ public class Boss {
                     log.info("已投递过该岗位，跳过：{}", uniqueKey);
                     continue;
                 }
-                // 使用Playwright在新标签页中打开链接
+            // 使用Playwright在新标签页中打开链接
                 jobPage = PlaywrightUtil.getPageObject().context().newPage();
-                try {
-                    jobPage.navigate(homeUrl + job.getHref());
-                    // 等待聊天按钮出现
-                    Locator chatButton = jobPage.locator(BossElementLocators.CHAT_BUTTON);
-                    // 增加一个备用等待，例如等待页面主体内容加载
-                     jobPage.waitForLoadState();
+            try {
+                jobPage.navigate(homeUrl + job.getHref());
+                // 等待聊天按钮出现
+                Locator chatButton = jobPage.locator(BossElementLocators.CHAT_BUTTON);
+                // 增加一个备用等待，例如等待页面主体内容加载
+                 jobPage.waitForLoadState();
 
-                    if (!chatButton.nth(0).isVisible(new Locator.IsVisibleOptions().setTimeout(5000))) {
-                        Locator errorElement = jobPage.locator(BossElementLocators.ERROR_CONTENT);
-                        if (errorElement.isVisible() && errorElement.textContent().contains("异常访问")) {
-                             log.warn("加载推荐岗位详情页【{}】异常访问", job.getJobName());
-                            jobPage.close();
-                            return -2; // 返回特定错误码表示异常访问
-                        }
-                        else {
-                             log.warn("加载推荐岗位详情页【{}】超时或未找到沟通按钮", job.getJobName());
-                             jobPage.close();
-                             continue; // 跳过当前岗位，继续下一个
-                        }
+                if (!chatButton.nth(0).isVisible(new Locator.IsVisibleOptions().setTimeout(5000))) {
+                    Locator errorElement = jobPage.locator(BossElementLocators.ERROR_CONTENT);
+                    if (errorElement.isVisible() && errorElement.textContent().contains("异常访问")) {
+                         log.warn("加载推荐岗位详情页【{}】异常访问", job.getJobName());
+                        jobPage.close();
+                        return -2; // 返回特定错误码表示异常访问
                     }
-            } catch (Exception e) {
-                    if (config.getDebugger()) {
-                        e.printStackTrace();
+                    else {
+                         log.warn("加载推荐岗位详情页【{}】超时或未找到沟通按钮", job.getJobName());
+                         jobPage.close();
+                         continue; // 跳过当前岗位，继续下一个
                     }
-                    log.error("加载推荐岗位详情页【{}】失败: {}", job.getJobName(), e.getMessage());
-                    jobPage.close();
-                    continue;
                 }
-
-                // 过滤不活跃HR
-                if (isDeadHR(jobPage)) {
-                    jobPage.close();
-                    log.info("已过滤【{}】公司【{}】推荐岗位，该HR不活跃", job.getCompanyName(), job.getJobName());
-                    PlaywrightUtil.sleep(1);
-                    continue;
+        } catch (Exception e) {
+                if (config.getDebugger()) {
+                    e.printStackTrace();
                 }
+                log.error("加载推荐岗位详情页【{}】失败: {}", job.getJobName(), e.getMessage());
+                jobPage.close();
+                continue;
+            }
 
-                // 尝试获取完整的职位描述和职责
+            // 过滤不活跃HR
+            if (isDeadHR(jobPage)) {
+                jobPage.close();
+                log.info("已过滤【{}】公司【{}】推荐岗位，该HR不活跃", job.getCompanyName(), job.getJobName());
+                PlaywrightUtil.sleep(1);
+                continue;
+            }
+
+            // 尝试获取完整的职位描述和职责
                 String jobDuty = "";
                 String salaryInfo = "";
-                try {
+            try {
                     Locator jdElements = jobPage.locator(BossElementLocators.JOB_DESCRIPTION);
                     int jdCount = jdElements.count();
                     for (int i = 0; i < jdCount; i++) {
@@ -1436,72 +1464,72 @@ public class Boss {
                         } else if (text.contains("薪资范围")) {
                             salaryInfo = text;
                         }
-                    }
-                } catch (Exception e) {
-                    log.info("获取推荐职位描述失败:{}", e.getMessage());
-                }
+                 }
+        } catch (Exception e) {
+                 log.info("获取推荐职位描述失败:{}", e.getMessage());
+    }
                 if(isValidString(jobDuty)){
                     job.setJobKeywordTag(jobDuty);
+            } else {
+                // 获取职位描述标签
+                String jobKeywordTag = "";
+                try {
+                    Locator tagElements = jobPage.locator(JOB_KEYWORD_LIST);
+                    int tagCount = tagElements.count();
+                    StringBuilder tag = new StringBuilder();
+                    for (int j = 0; j < tagCount; j++) {
+                        tag.append(tagElements.nth(j).textContent()).append("·");
+        }
+                    if(tag.length() > 0){
+                        jobKeywordTag = tag.substring(0, tag.length() - 1);
+                    }
+                } catch (Exception e) {
+                    log.info("获取推荐职位描述标签失败:{}", e.getMessage());
+    }
+                if (isValidString(jobKeywordTag)){
+                    job.setJobKeywordTag(jobKeywordTag);
                 } else {
-                    // 获取职位描述标签
-                    String jobKeywordTag = "";
-                    try {
-                        Locator tagElements = jobPage.locator(JOB_KEYWORD_LIST);
-                        int tagCount = tagElements.count();
-                        StringBuilder tag = new StringBuilder();
-                        for (int j = 0; j < tagCount; j++) {
-                            tag.append(tagElements.nth(j).textContent()).append("·");
-                        }
-                        if(tag.length() > 0){
-                            jobKeywordTag = tag.substring(0, tag.length() - 1);
-                        }
-                    } catch (Exception e) {
-                        log.info("获取推荐职位描述标签失败:{}", e.getMessage());
-                    }
-                    if (isValidString(jobKeywordTag)){
-                        job.setJobKeywordTag(jobKeywordTag);
-                    } else {
-                        job.setJobKeywordTag("");
-                    }
+                    job.setJobKeywordTag("");
                 }
+            }
                 job.setSalary(salaryInfo.isEmpty() ? job.getSalary() : salaryInfo);
 
-                // 修改后的关键词匹配逻辑，检查岗位名称、描述或职责是否包含任一关键词
-                boolean containsKeyword = false;
-                if (keywords != null && !keywords.isEmpty()) {
-                    String lowerCaseJobName = job.getJobName().toLowerCase();
-                    String lowerCaseJobDescription = job.getJobKeywordTag().toLowerCase();
+            // 修改后的关键词匹配逻辑，检查岗位名称、描述或职责是否包含任一关键词
+            boolean containsKeyword = false;
+            if (keywords != null && !keywords.isEmpty()) {
+                String lowerCaseJobName = job.getJobName().toLowerCase();
+                String lowerCaseJobDescription = job.getJobKeywordTag().toLowerCase();
 
-                    for (String keywordItem : keywords) {
-                        String lowerCaseKeywordItem = keywordItem.toLowerCase();
-                        // 只要岗位名称、描述或职责中包含关键词之一，就视为匹配
-                        if (lowerCaseJobName.contains(lowerCaseKeywordItem) || 
-                            lowerCaseJobDescription.contains(lowerCaseKeywordItem)) {
-                            containsKeyword = true;
-                            break;
+                for (String keywordItem : keywords) {
+                    String lowerCaseKeywordItem = keywordItem.toLowerCase();
+                    // 只要岗位名称、描述或职责中包含关键词之一，就视为匹配
+                    if (lowerCaseJobName.contains(lowerCaseKeywordItem) || 
+                        lowerCaseJobDescription.contains(lowerCaseKeywordItem)) {
+                        containsKeyword = true;
+                        break;
     }
                 }
             }
 
-                // 如果不包含任何关键字，则跳过此职位
-                if (!keywords.isEmpty() && !containsKeyword) {
-                    log.info("已过滤:【{}】公司【{}】推荐岗位，名称或描述不包含任何关键字", job.getCompanyName(), job.getJobName());
-                    jobPage.close();
-                    continue;
-                }
-
-                // 处理职位详情页 (薪资过滤和黑名单公司过滤等)
-                int result = processJobDetail(jobPage, job, null);
-                if (result < 0) {
-                    jobPage.close();
-                    return result;
-            }
-                
-                // 关闭页面
+            // 如果不包含任何关键字，则跳过此职位
+            if (!keywords.isEmpty() && !containsKeyword) {
+                log.info("已过滤:【{}】公司【{}】推荐岗位，名称或描述不包含任何关键字", job.getCompanyName(), job.getJobName());
                 jobPage.close();
+                continue;
+            }
 
-                if (config.getDebugger()) {
-                    break;
+            // 处理职位详情页 (薪资过滤和黑名单公司过滤等)
+            int result = processJobDetail(jobPage, job, null);
+            if (result < 0) {
+                jobPage.close();
+                return result;
+        }
+            
+            // 关闭页面
+            jobPage.close();
+
+            if (config.getDebugger()) {
+                break;
                 }
                 if (result == 0) {
                     // 投递成功，记录唯一标识
@@ -2072,21 +2100,21 @@ public class Boss {
                     i = i.replaceAll("[（）()\s]", "").replaceAll("(有限责任公司|有限公司|公司|集团|控股|股份|分公司|子公司)", "");
                 }
                 if (n.contains(i)) {
-                    // 首次命中记录 addTime 并持久化
-                    if (item.days != null && item.addTime == null) {
-                        item.addTime = System.currentTimeMillis();
-                        Map<String, Object> map = blacklistTimeData.getOrDefault(typeKey, new HashMap<>());
-                        Map<String, Object> v = new HashMap<>();
-                        v.put("addTime", item.addTime);
-                        v.put("days", item.days);
-                        map.put(item.name, v);
-                        blacklistTimeData.put(typeKey, map);
-                        saveBlacklistTime();
-                    }
-                    if (item.isExpired()) continue;
-                    long remain = item.remainDays();
-                    log.info("已过滤：{}黑名单命中【{}】，剩余有效天数：{}，岗位【{}】", type, item.name, remain == Long.MAX_VALUE ? "永久" : remain + "天", jobName);
-                    return true;
+                // 首次命中记录 addTime 并持久化
+                if (item.days != null && item.addTime == null) {
+                    item.addTime = System.currentTimeMillis();
+                    Map<String, Object> map = blacklistTimeData.getOrDefault(typeKey, new HashMap<>());
+                    Map<String, Object> v = new HashMap<>();
+                    v.put("addTime", item.addTime);
+                    v.put("days", item.days);
+                    map.put(item.name, v);
+                    blacklistTimeData.put(typeKey, map);
+                    saveBlacklistTime();
+                }
+                if (item.isExpired()) continue;
+                long remain = item.remainDays();
+                log.info("已过滤：{}黑名单命中【{}】，剩余有效天数：{}，岗位【{}】", type, item.name, remain == Long.MAX_VALUE ? "永久" : remain + "天", jobName);
+                return true;
                 }
             }
         }
