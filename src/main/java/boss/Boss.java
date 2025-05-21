@@ -702,7 +702,7 @@ public class Boss {
 
 
     @SneakyThrows
-    private static Integer h5ResumeSubmission(String keyword, Page page) {
+    private static Integer h5ResumeSubmission(String keyword, Page page, String cityName) {
         // 查找所有job卡片元素
         // 获取元素总数
         List<ElementHandle> jobCards = page.querySelectorAll("ul li.item");
@@ -717,35 +717,37 @@ public class Boss {
             String salary = jobCard.querySelector("div.title span.salary").textContent();
             String jobHref = jobCard.querySelector("a").getAttribute("href");
 
-            if (isInBlackList(blackRecruiterItems, recruiterText, "招聘者", jobHref)) {
-                continue;
-            }
-            String jobName = jobCard.querySelector("div.title span.title-text").textContent();
-            if (isInBlackList(blackJobItems, jobName, "岗位", jobName) || !isTargetJob(keyword, jobName)) {
-                continue;
-            }
-            String companyName = jobCard.querySelector("div.name span.company").textContent();
-            if (isInBlackList(blackCompanyItems, companyName, "公司", jobName)) {
-                continue;
-            }
-            if (isSalaryNotExpected(salary)) {
-                // 过滤薪资
-                log.info("已过滤:【{}】公司【{}】岗位薪资【{}】不符合投递要求", companyName, jobName, salary);
-                continue;
-            }
-
-            if (config.getKeyFilter()) {
-                // 修改为：只要岗位名称包含任意一个关键词就通过
-                boolean matchAnyKeyword = false;
-                for (String k : config.getKeywords()) {
-                    if (jobName.toLowerCase().contains(k.toLowerCase())) {
-                        matchAnyKeyword = true;
-                        break;
-                    }
-                }
-                if (!matchAnyKeyword) {
-                    log.info("已过滤：岗位【{}】名称不包含任意关键字{}", jobName, config.getKeywords());
+            // === 新增：本地二次过滤开关 ===
+            if (h5Config.getStrictLocalFilter() != null && h5Config.getStrictLocalFilter()) {
+                if (isInBlackList(blackRecruiterItems, recruiterText, "招聘者", jobHref)) {
                     continue;
+                }
+                String jobName = jobCard.querySelector("div.title span.title-text").textContent();
+                if (isInBlackList(blackJobItems, jobName, "岗位", jobName) || !isTargetJob(keyword, jobName)) {
+                    continue;
+                }
+                String companyName = jobCard.querySelector("div.name span.company").textContent();
+                if (isInBlackList(blackCompanyItems, companyName, "公司", jobName)) {
+                    continue;
+                }
+                if (isSalaryNotExpected(salary)) {
+                    // 过滤薪资
+                    log.info("已过滤:【{}】公司【{}】岗位薪资【{}】不符合投递要求", companyName, jobName, salary);
+                    continue;
+                }
+                if (config.getKeyFilter()) {
+                    // 修改为：只要岗位名称包含任意一个关键词就通过
+                    boolean matchAnyKeyword = false;
+                    for (String k : config.getKeywords()) {
+                        if (jobName.toLowerCase().contains(k.toLowerCase())) {
+                            matchAnyKeyword = true;
+                            break;
+                        }
+                    }
+                    if (!matchAnyKeyword) {
+                        log.info("已过滤：岗位【{}】名称不包含任意关键字{}", jobName, config.getKeywords());
+                        continue;
+                    }
                 }
             }
 
@@ -753,7 +755,7 @@ public class Boss {
             // 获取职位链接
             job.setHref(jobHref);
             // 获取职位名称
-            job.setJobName(jobName);
+            job.setJobName(jobCard.querySelector("div.title span.title-text").textContent());
             // 获取工作地点
             job.setJobArea(jobCard.querySelector("div.name span.workplace").textContent());
             // 获取薪资
@@ -770,14 +772,21 @@ public class Boss {
                 job.setCompanyTag("");
             }
             // 获取公司名称
-            job.setCompanyName(companyName);
+            job.setCompanyName(jobCard.querySelector("div.name span.company").textContent());
             // 设置招聘者信息
             job.setRecruiter(recruiterText);
+            // 新增：查找并点击H5"立即沟通"按钮
+            ElementHandle chatBtn = jobCard.querySelector(".btn-chat");
+            if (chatBtn != null && chatBtn.isVisible()) {
+                chatBtn.click();
+                PlaywrightUtil.sleep(2); // 等待页面响应
+                // 可在此处补充自动填写打招呼语、发送等后续逻辑
+            }
             jobs.add(job);
         }
 
         // 处理每个职位详情
-        int result = processJobListDetails(jobs, keyword, page);
+        int result = processJobListDetails(jobs, keyword, page, cityName);
         if (result < 0) {
             return result;
         }
@@ -1707,61 +1716,112 @@ public class Boss {
 
 
     private static void postH5JobByCityByPlaywright(String cityCode) {
+        // 新增：根据cityCode反查城市名
+        String cityName = null;
+        for (H5BossEnum.CityCode cc : H5BossEnum.CityCode.values()) {
+            if (cc.getCode().equals(cityCode)) {
+                cityName = cc.getName();
+                break;
+            }
+        }
+        if (cityName == null) cityName = cityCode; // 兜底
 
         Page page = PlaywrightUtil.getPageObject(PlaywrightUtil.DeviceType.MOBILE);
-
         for (String keyword : h5Config.getKeywords()) {
             String searchUrl = getH5SearchUrl(cityCode, keyword);
             log.info("查询url:{}", searchUrl);
-
             try {
                 log.info("开始投递，页面url：{}", searchUrl);
-                // 使用PlaywrightUtil获取移动设备页面并导航
                 page.navigate(searchUrl);
-
-                // 点击立即沟通，建立chat窗口
                 if (isH5JobsPresent(page)) {
+                    Set<String> processedJobIds = new HashSet<>();
                     int previousCount = 0;
                     int retry = 0;
-                    // 向下滚动到底部
                     while (true) {
-                        // 当前页面中 class="item" 的 li 元素数量
-                        int currentCount = (int) page.evaluate("document.querySelectorAll('li.item').length");
-
-                        // 滚动到底部
-                        // 滚动到比页面高度更大的值，确保触发加载
+                        // 1. 获取当前页面所有岗位卡片
+                        List<ElementHandle> jobCards = page.querySelectorAll("ul li.item");
+                        int currentCount = jobCards.size();
+                        // 2. 对新出现的岗位做本地过滤和投递
+                        List<Job> jobs = new ArrayList<>();
+                        for (ElementHandle jobCard : jobCards) {
+                            String jobHref = jobCard.querySelector("a").getAttribute("href");
+                            if (processedJobIds.contains(jobHref)) continue;
+                            processedJobIds.add(jobHref);
+                            // 复用h5ResumeSubmission的过滤逻辑
+                            // 只收集通过本地过滤的岗位
+                            boolean pass = true;
+                            String recruiterText = jobCard.querySelector("div.recruiter div.name").textContent();
+                            String salary = jobCard.querySelector("div.title span.salary").textContent();
+                            String jobName = jobCard.querySelector("div.title span.title-text").textContent();
+                            String companyName = jobCard.querySelector("div.name span.company").textContent();
+                            if (h5Config.getStrictLocalFilter() != null && h5Config.getStrictLocalFilter()) {
+                                if (isInBlackList(blackRecruiterItems, recruiterText, "招聘者", jobHref)) { pass = false; }
+                                if (isInBlackList(blackJobItems, jobName, "岗位", jobName) || !isTargetJob(keyword, jobName)) { pass = false; }
+                                if (isInBlackList(blackCompanyItems, companyName, "公司", jobName)) { pass = false; }
+                                if (isSalaryNotExpected(salary)) { pass = false; }
+                                if (config.getKeyFilter()) {
+                                    boolean matchAnyKeyword = false;
+                                    for (String k : config.getKeywords()) {
+                                        if (jobName.toLowerCase().contains(k.toLowerCase())) {
+                                            matchAnyKeyword = true;
+                                            break;
+                                        }
+                                    }
+                                    if (!matchAnyKeyword) { pass = false; }
+                                }
+                            }
+                            if (pass) {
+                                Job job = new Job();
+                                job.setHref(jobHref);
+                                job.setJobName(jobName);
+                                job.setJobArea(jobCard.querySelector("div.name span.workplace").textContent());
+                                job.setSalary(salary);
+                                List<ElementHandle> tagElements = jobCard.querySelectorAll("div.labels span");
+                                StringBuilder tag = new StringBuilder();
+                                for (ElementHandle tagElement : tagElements) {
+                                    tag.append(tagElement.textContent()).append("·");
+                                }
+                                if (tag.length() > 0) {
+                                    job.setCompanyTag(tag.substring(0, tag.length() - 1));
+                                } else {
+                                    job.setCompanyTag("");
+                                }
+                                job.setCompanyName(companyName);
+                                job.setRecruiter(recruiterText);
+                                jobs.add(job);
+                            }
+                        }
+                        // 3. 对通过过滤的岗位立即投递
+                        if (!jobs.isEmpty()) {
+                            // 只处理新加载的岗位
+                            processJobListDetails(jobs, keyword, page, cityName);
+                        }
+                        // 4. 下拉加载更多
                         page.evaluate("window.scrollTo(0, document.documentElement.scrollHeight + 100)");
-                        page.waitForTimeout(10000); // 等待数据加载
-
-                        // 检查数量是否变化
+                        page.waitForTimeout(10000);
                         if (currentCount == previousCount) {
                             retry++;
                             log.info("第{}次下拉重试", retry);
                             if (retry >= 2) {
                                 log.info("尝试2次下拉后无新增岗位，退出");
-                                break; // 连续两次未加载新数据，认为加载完毕
+                                break;
                             }
                         } else {
-                            retry = 0; // 重置尝试次数
+                            retry = 0;
                         }
-
                         previousCount = currentCount;
-
                         if (config.getDebugger()) {
                             break;
                         }
                     }
                     log.info("已加载全部岗位，总数量: " + previousCount);
                 }
-
-                // chat页面进行消息沟通
-                h5ResumeSubmission(keyword, page);
+                // chat页面进行消息沟通，传递cityName
+                h5ResumeSubmission(keyword, page, cityName);
             } catch (Exception e) {
                 log.error("使用Playwright处理页面时出错: {}", e.getMessage(), e);
             }
-
         }
-
     }
 
     private static String getH5SearchUrl(String cityCode, String keyword) {

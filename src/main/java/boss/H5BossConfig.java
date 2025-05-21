@@ -145,6 +145,11 @@ public class H5BossConfig {
      */
     private Boolean filterDeadHR;
 
+    /**
+     * 是否启用本地二次过滤，true为只投递严格匹配配置的岗位，false为允许平台推荐岗位
+     */
+    private Boolean strictLocalFilter = false;
+
     @SneakyThrows
     public static H5BossConfig init() {
         H5BossConfig config = JobUtils.getConfig(H5BossConfig.class);
