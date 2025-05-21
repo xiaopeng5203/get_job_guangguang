@@ -1231,12 +1231,12 @@ public class Boss {
             }
             String filePath = dirPath + "/job_details.md";
             StringBuilder sb = new StringBuilder();
-            sb.append("## 岗位名称：").append(job.getJobName()).append("\n");
-            sb.append("- 公司名称：").append(job.getCompanyName()).append("\n");
-            sb.append("- 工作地点：").append(job.getJobArea()).append("\n");
-            sb.append("- 薪资：").append(job.getSalary() == null ? "" : job.getSalary()).append("\n");
-            sb.append("- 招聘者：").append(job.getRecruiter() == null ? "" : job.getRecruiter()).append("\n");
-            sb.append("- 职位描述/职责/要求：\n");
+            sb.append("岗位名称：").append(job.getJobName()).append("\n");
+            sb.append("公司名称：").append(job.getCompanyName()).append("\n");
+            sb.append("工作地点：").append(job.getJobArea()).append("\n");
+            sb.append("薪资：").append(job.getSalary() == null ? "" : job.getSalary()).append("\n");
+            sb.append("招聘者：").append(job.getRecruiter() == null ? "" : job.getRecruiter()).append("\n");
+            sb.append("职位描述/职责/要求：\n");
             // 分行处理岗位职责/要求
             String rawDesc = job.getJobKeywordTag() == null ? "" : job.getJobKeywordTag();
             String[] lines = rawDesc.split("[；;。\n]");
@@ -1252,10 +1252,10 @@ public class Boss {
                     sb.append(line).append("\n");
                 }
             }
-            sb.append("- 抓取时间：").append(new java.text.SimpleDateFormat("yyyy-MM-dd HH:mm:ss").format(new java.util.Date())).append("\n");
+            sb.append("抓取时间：").append(new java.text.SimpleDateFormat("yyyy-MM-dd HH:mm:ss").format(new java.util.Date())).append("\n");
             // 新增：写入AI打招呼语
             if (sayHiText != null && !sayHiText.isEmpty()) {
-                sb.append("- AI打招呼语：").append(sayHiText).append("\n");
+                sb.append("AI打招呼语：").append(sayHiText).append("\n");
             }
             sb.append("---\n\n");
             java.nio.file.Files.write(java.nio.file.Paths.get(filePath), sb.toString().getBytes(java.nio.charset.StandardCharsets.UTF_8), java.nio.file.StandardOpenOption.CREATE, java.nio.file.StandardOpenOption.APPEND);
