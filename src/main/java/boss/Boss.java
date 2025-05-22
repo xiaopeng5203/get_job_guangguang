@@ -1161,15 +1161,15 @@ public class Boss {
             }
 
             // 获取职位描述和职责
-                String jobDuty = "";
+                StringBuilder desc = new StringBuilder();
                 String salaryInfo = "";
             try {
                     Locator jdElements = jobPage.locator(BossElementLocators.JOB_DESCRIPTION);
                     int jdCount = jdElements.count();
                     for (int i = 0; i < jdCount; i++) {
                         String text = jdElements.nth(i).textContent();
-                        if (text.contains("岗位职责") || text.contains("职位描述")) {
-                            jobDuty = text;
+                        if (text.contains("岗位职责") || text.contains("职位描述") || text.contains("岗位要求") || text.contains("任职要求")) {
+                            desc.append(text).append("\n");
                         } else if (text.contains("薪资范围")) {
                             salaryInfo = text;
                         }
@@ -1178,14 +1178,14 @@ public class Boss {
                  log.info("获取职位描述失败:{}", e.getMessage());
             }
             // 更新Job对象的jobKeywordTag，包含描述和职责
-                job.setJobKeywordTag(jobDuty);
+                job.setJobKeywordTag(desc.toString());
                 job.setSalary(salaryInfo.isEmpty() ? job.getSalary() : salaryInfo);
 
             // 修改后的关键词匹配逻辑，检查岗位名称、描述或职责是否包含任一关键词
             boolean containsKeyword = false;
             if (keywords != null && !keywords.isEmpty()) {
                 String lowerCaseJobName = job.getJobName().toLowerCase();
-                    String lowerCaseJobDescription = jobDuty.toLowerCase();
+                    String lowerCaseJobDescription = desc.toString().toLowerCase();
 
                     for (String keywordItem : keywords) {
                     String lowerCaseKeywordItem = keywordItem.toLowerCase();
@@ -1640,15 +1640,15 @@ public class Boss {
             }
 
             // 尝试获取完整的职位描述和职责
-                String jobDuty = "";
+                StringBuilder desc = new StringBuilder();
                 String salaryInfo = "";
             try {
                     Locator jdElements = jobPage.locator(BossElementLocators.JOB_DESCRIPTION);
                     int jdCount = jdElements.count();
                     for (int i = 0; i < jdCount; i++) {
                         String text = jdElements.nth(i).textContent();
-                        if (text.contains("岗位职责") || text.contains("职位描述")) {
-                            jobDuty = text;
+                        if (text.contains("岗位职责") || text.contains("职位描述") || text.contains("岗位要求") || text.contains("任职要求")) {
+                            desc.append(text).append("\n");
                         } else if (text.contains("薪资范围")) {
                             salaryInfo = text;
                         }
@@ -1656,8 +1656,8 @@ public class Boss {
         } catch (Exception e) {
                  log.info("获取推荐职位描述失败:{}", e.getMessage());
     }
-                if(isValidString(jobDuty)){
-                    job.setJobKeywordTag(jobDuty);
+                if(isValidString(desc.toString())){
+                    job.setJobKeywordTag(desc.toString());
             } else {
                 // 获取职位描述标签
                 String jobKeywordTag = "";
@@ -1685,7 +1685,7 @@ public class Boss {
 
 
             // 处理职位详情页 (薪资过滤和黑名单公司过滤等)
-            int result = processJobDetail(jobPage, job, null);
+            int result = processJobDetail(jobPage, job, job.getJobName());
             if (result < 0) {
                 jobPage.close();
                 return result;
