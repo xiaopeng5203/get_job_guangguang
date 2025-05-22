@@ -47,11 +47,22 @@ public class BossElementLocators {
     public static final String DIALOG_TITLE = "//div[@class='dialog-title']";
     public static final String DIALOG_CLOSE = "//i[@class='icon-close']";
     public static final String CHAT_INPUT = "//div[@id='chat-input']";
+    // 新增：兼容不同版本的聊天输入框选择器
+    public static final String CHAT_INPUT_ALT = ".input-area, textarea.input-area, div.input-area, div[contenteditable='true'], .chat-input, #chat-input";
     public static final String DIALOG_CONTAINER = "//div[@class='dialog-container']";
     public static final String SEND_BUTTON = "//button[@type='send']";
+    // 新增：兼容不同版本的发送按钮选择器
+    public static final String SEND_BUTTON_ALT = "button.btn-send, button[type='submit'], .send-btn, .btn-primary";
     public static final String IMAGE_UPLOAD = "//div[@aria-label='发送图片']//input[@type='file']";
     public static final String DIALOG_CONTENT = "//div[@class='dialog-con']";
     public static final String SCROLL_LOAD_MORE = "//div[contains(text(), '滚动加载更多')]";
+
+    // 新增：弹窗相关元素
+    public static final String POPUP_CONTAINER = ".dialog-box, .dialog-con, .dialog-container, .popup-content";
+    public static final String POPUP_QUESTION_DIALOG = ".dialog-content .question, .popup-box .question, .dialog-box .question-content";
+    public static final String POPUP_QUESTION_INPUT = ".dialog-content textarea, .popup-box textarea, .dialog-box textarea, .dialog-content input[type='text'], .popup-box input[type='text']";
+    public static final String POPUP_CONFIRM_BUTTON = ".dialog-footer .btn-primary, .dialog-footer .btn-sure, .popup-footer .btn-primary, .dialog-box .btn-primary, button.confirm, button.primary, button.btn-confirm";
+    public static final String POPUP_CLOSE_BUTTON = ".dialog-close, .close-icon, .icon-close, button.cancel, .popup-close, .dialog-box .close";
 
     // 消息列表页元素
     public static final String CHAT_LIST_ITEM = "//li[@role='listitem']";

@@ -6,6 +6,8 @@ import com.fasterxml.jackson.dataformat.yaml.YAMLFactory;
 import io.github.cdimascio.dotenv.Dotenv;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.hc.client5.http.fluent.Request;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.io.File;
 import java.io.IOException;
@@ -19,6 +21,7 @@ import java.util.HashMap;
  */
 @Slf4j
 public class Bot {
+    private static final Logger log = LoggerFactory.getLogger(Bot.class);
 
     private static final String HOOK_URL;
     private static boolean isSend;
@@ -51,29 +54,31 @@ public class Bot {
             if (botConfig != null && botConfig.get("is_bark_send") != null) {
                 isBarkSend = Boolean.TRUE.equals(safeCast(botConfig.get("is_bark_send"), Boolean.class));
             } else {
+                log.warn("配置文件中缺少 'bot.is_bark_send' 键或值为空，不发送消息。");
                 isBarkSend = false;
             }
             if (botConfig != null && botConfig.get("bark_url") != null) {
                 barkUrl = botConfig.get("bark_url").toString();
             } else {
-                barkUrl = null;
+                log.warn("配置文件中缺少 'bot.bark_url' 键或值为空，不发送消息。");
             }
         } catch (IOException e) {
             log.error("读取 config.yaml 异常：{}", e.getMessage());
             isSend = false;
             isBarkSend = false;
-            barkUrl = null;
         }
     }
 
     public static void sendBark(String message) {
-        if (!isBarkSend || barkUrl == null || barkUrl.isEmpty()) return;
+        if (!isBarkSend) {
+            return;
+        }
         try {
             String url = barkUrl + java.net.URLEncoder.encode(message, "UTF-8");
             String response = Request.get(url).execute().returnContent().asString();
-            log.info("Bark推送成功: {}", response);
+            log.info("消息推送成功: {}", response);
         } catch (Exception e) {
-            log.error("Bark推送失败: {}", e.getMessage());
+            log.error("消息推送失败: {}", e.getMessage());
         }
     }
 

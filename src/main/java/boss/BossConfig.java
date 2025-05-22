@@ -91,6 +91,11 @@ public class BossConfig {
     private Boolean sendImgResume;
 
     /**
+     * 是否保存岗位详情到文件
+     */
+    private Boolean saveJobDetail;
+
+    /**
      * 目标薪资
      */
     private List<Integer> expectedSalary;
@@ -169,6 +174,11 @@ public class BossConfig {
     private List<String> recommendTabPriority;
     public List<String> getRecommendTabPriority() { return recommendTabPriority; }
     public void setRecommendTabPriority(List<String> recommendTabPriority) { this.recommendTabPriority = recommendTabPriority; }
+
+    private String recommendDefaultCity;
+    
+    public String getRecommendDefaultCity() { return recommendDefaultCity; }
+    public void setRecommendDefaultCity(String recommendDefaultCity) { this.recommendDefaultCity = recommendDefaultCity; }
 
     public Object getSalary() {
         return salary;
