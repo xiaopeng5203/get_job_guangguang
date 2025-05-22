@@ -342,55 +342,151 @@ public class Boss {
         page.waitForLoadState();
 
         try {
-            // 等待元素出现，最多等待10秒
+            // 等待Tab元素出现，最多等待10秒
             page.waitForSelector("a.expect-item", new Page.WaitForSelectorOptions().setTimeout(10000));
 
-            // 获取a标签且class是expect-item的元素
-            ElementHandle activeElement = page.querySelector("a.expect-item");
+            // 获取所有推荐岗位Tab
+            List<ElementHandle> tabs = page.querySelectorAll("a.expect-item");
+            if (tabs == null || tabs.isEmpty()) {
+                log.error("未找到class为'expect-item'的a标签元素");
+                return;
+            }
 
-            if (activeElement != null) {
-                log.info("找到'expect-item'元素，准备点击");
-                // 点击该元素
-                activeElement.click();
-                // 点击后等待页面响应
+            // 读取配置文件中的Tab优先级
+            List<String> tabPriority = config.getRecommendTabPriority();
+            // 构建Tab文本到ElementHandle的映射
+            Map<String, ElementHandle> tabMap = new java.util.LinkedHashMap<>();
+            for (ElementHandle tab : tabs) {
+                String tabText = tab.textContent().trim();
+                tabMap.put(tabText, tab);
+            }
+            // 记录已处理的Tab
+            Set<String> processed = new java.util.HashSet<>();
+            // 1. 优先处理配置文件中指定的Tab（模糊匹配）
+            if (tabPriority != null && !tabPriority.isEmpty()) {
+                for (String tabName : tabPriority) {
+                    // 遍历所有Tab，找到第一个包含关键字的Tab
+                    ElementHandle tab = null;
+                    tabs = page.querySelectorAll("a.expect-item"); // 重新获取，防止DOM刷新
+                    for (ElementHandle t : tabs) {
+                        String tabText = t.textContent().trim();
+                        if (tabText.contains(tabName)) { // 模糊匹配
+                            tab = t;
+                            tabName = tabText; // 用实际Tab文本作为日志
+                            break;
+                        }
+                    }
+                    if (tab == null) continue;
+                    log.info("优先投递配置Tab(模糊匹配): {}", tabName);
+                    tab.click();
+                    page.waitForLoadState();
+                    page.waitForTimeout(1000);
+                    if (isJobsPresent()) {
+                        try {
+                            log.info("开始获取推荐岗位信息...");
+                            int previousJobCount = 0;
+                            int currentJobCount = 0;
+                            int unchangedCount = 0;
+                            while (unchangedCount < 2) {
+                                List<ElementHandle> jobCards = page.querySelectorAll(JOB_LIST_SELECTOR);
+                                currentJobCount = jobCards.size();
+                                log.info("当前已加载岗位数量:{} ", currentJobCount);
+                                if (currentJobCount > previousJobCount) {
+                                    previousJobCount = currentJobCount;
+                                    unchangedCount = 0;
+                                    PlaywrightUtil.evaluate("window.scrollTo(0, document.body.scrollHeight)");
+                                    log.info("下拉页面加载更多...");
+                                    page.waitForTimeout(2000);
+                                } else {
+                                    unchangedCount++;
+                                    if (unchangedCount < 2) {
+                                        System.out.println("下拉后岗位数量未增加，再次尝试...");
+                                        page.evaluate("window.scrollTo(0, document.body.scrollHeight)");
+                                        page.waitForTimeout(2000);
+                                    } else {
+                                        break;
+                                    }
+                                }
+                            }
+                            log.info("已获取所有可加载推荐岗位，共计: " + currentJobCount + " 个");
+                            Locator jobLocators = BossElementFinder.getPlaywrightLocator(page, BossElementLocators.JOB_CARD_BOX);
+                            int count = jobLocators.count();
+                            List<Job> jobs = new ArrayList<>();
+                            for (int j = 0; j < count; j++) {
+                                try {
+                                    Locator jobCard = jobLocators.nth(j);
+                                    String jobName = jobCard.locator(BossElementLocators.JOB_NAME).textContent();
+                                    if (blackJobs.stream().anyMatch(jobName::contains)) {
+                                        continue;
+                                    }
+                                    String companyName = jobCard.locator(BossElementLocators.COMPANY_NAME).textContent();
+                                    if (blackCompanies.stream().anyMatch(companyName::contains)) {
+                                        continue;
+                                    }
+                                    Job job = new Job();
+                                    job.setHref(jobCard.locator(BossElementLocators.JOB_NAME).getAttribute("href"));
+                                    job.setCompanyName(companyName);
+                                    job.setJobName(jobName);
+                                    job.setJobArea(jobCard.locator(BossElementLocators.JOB_AREA).textContent());
+                                    Locator tagElements = jobCard.locator(BossElementLocators.TAG_LIST);
+                                    int tagCount = tagElements.count();
+                                    StringBuilder tag = new StringBuilder();
+                                    for (int k = 0; k < tagCount; k++) {
+                                        tag.append(tagElements.nth(k).textContent()).append("·");
+                                    }
+                                    if (tag.length() > 0) {
+                                        job.setCompanyTag(tag.substring(0, tag.length() - 1));
+                                    } else {
+                                        job.setCompanyTag("");
+                                    }
+                                    jobs.add(job);
+                                } catch (Exception e) {
+                                    log.debug("处理岗位卡片失败: {}", e.getMessage());
+                                }
+                            }
+                            if (!jobs.isEmpty()) {
+                                recommendJobs.clear();
+                                recommendJobs.addAll(jobs);
+                                log.info("开始投递Tab[{}]下的推荐岗位...", tabName);
+                                processRecommendJobs();
+                            } else {
+                                log.info("Tab[{}]下无可投递岗位", tabName);
+                            }
+                        } catch (Exception e) {
+                            log.error("滚动加载数据异常: {}", e.getMessage());
+                        }
+                    }
+                    processed.add(tabName);
+                }
+            }
+            // 2. 处理未在配置中的Tab，按页面顺序
+            for (ElementHandle tab : tabs) {
+                String tabText = tab.textContent().trim();
+                if (processed.contains(tabText)) continue;
+                log.info("投递剩余Tab: {}", tabText);
+                tab.click();
                 page.waitForLoadState();
-                log.info("已点击'expect-item'元素");
-
-
+                page.waitForTimeout(1000);
                 if (isJobsPresent()) {
-                    // 尝试滚动页面加载更多数据
                     try {
-                        // 获取岗位列表并下拉加载更多
                         log.info("开始获取推荐岗位信息...");
-
-                        // 记录下拉前后的岗位数量
                         int previousJobCount = 0;
                         int currentJobCount = 0;
                         int unchangedCount = 0;
-
                         while (unchangedCount < 2) {
-                            // 获取所有岗位卡片
                             List<ElementHandle> jobCards = page.querySelectorAll(JOB_LIST_SELECTOR);
                             currentJobCount = jobCards.size();
-
                             log.info("当前已加载岗位数量:{} ", currentJobCount);
-
-                            // 判断是否有新增岗位
                             if (currentJobCount > previousJobCount) {
                                 previousJobCount = currentJobCount;
                                 unchangedCount = 0;
-
-                                // 滚动到页面底部加载更多
                                 PlaywrightUtil.evaluate("window.scrollTo(0, document.body.scrollHeight)");
                                 log.info("下拉页面加载更多...");
-
-                                // 等待新内容加载
                                 page.waitForTimeout(2000);
                             } else {
                                 unchangedCount++;
                                 if (unchangedCount < 2) {
                                     System.out.println("下拉后岗位数量未增加，再次尝试...");
-                                    // 再次尝试滚动
                                     page.evaluate("window.scrollTo(0, document.body.scrollHeight)");
                                     page.waitForTimeout(2000);
                                 } else {
@@ -398,67 +494,58 @@ public class Boss {
                                 }
                             }
                         }
-
                         log.info("已获取所有可加载推荐岗位，共计: " + currentJobCount + " 个");
-
-
-                        // 使用page.locator方法获取所有匹配的元素
                         Locator jobLocators = BossElementFinder.getPlaywrightLocator(page, BossElementLocators.JOB_CARD_BOX);
-                        // 获取元素总数
                         int count = jobLocators.count();
-
                         List<Job> jobs = new ArrayList<>();
-                        // 遍历所有找到的job卡片
-                        for (int i = 0; i < count; i++) {
+                        for (int j = 0; j < count; j++) {
                             try {
-                                Locator jobCard = jobLocators.nth(i);
+                                Locator jobCard = jobLocators.nth(j);
                                 String jobName = jobCard.locator(BossElementLocators.JOB_NAME).textContent();
                                 if (blackJobs.stream().anyMatch(jobName::contains)) {
-                                    // 排除黑名单岗位
                                     continue;
                                 }
                                 String companyName = jobCard.locator(BossElementLocators.COMPANY_NAME).textContent();
                                 if (blackCompanies.stream().anyMatch(companyName::contains)) {
-                                    // 排除黑名单公司
                                     continue;
                                 }
-
-
                                 Job job = new Job();
                                 job.setHref(jobCard.locator(BossElementLocators.JOB_NAME).getAttribute("href"));
                                 job.setCompanyName(companyName);
                                 job.setJobName(jobName);
                                 job.setJobArea(jobCard.locator(BossElementLocators.JOB_AREA).textContent());
-                                // 获取标签列表
                                 Locator tagElements = jobCard.locator(BossElementLocators.TAG_LIST);
                                 int tagCount = tagElements.count();
                                 StringBuilder tag = new StringBuilder();
-                                for (int j = 0; j < tagCount; j++) {
-                                    tag.append(tagElements.nth(j).textContent()).append("·");
+                                for (int k = 0; k < tagCount; k++) {
+                                    tag.append(tagElements.nth(k).textContent()).append("·");
                                 }
                                 if (tag.length() > 0) {
                                     job.setCompanyTag(tag.substring(0, tag.length() - 1));
                                 } else {
                                     job.setCompanyTag("");
                                 }
-
-                                recommendJobs.add(job);
+                                jobs.add(job);
                             } catch (Exception e) {
                                 log.debug("处理岗位卡片失败: {}", e.getMessage());
                             }
                         }
-
+                        if (!jobs.isEmpty()) {
+                            recommendJobs.clear();
+                            recommendJobs.addAll(jobs);
+                            log.info("开始投递Tab[{}]下的推荐岗位...", tabText);
+                            processRecommendJobs();
+                        } else {
+                            log.info("Tab[{}]下无可投递岗位", tabText);
+                        }
                     } catch (Exception e) {
                         log.error("滚动加载数据异常: {}", e.getMessage());
                     }
                 }
-            } else {
-                log.error("未找到class为'expect-item'的a标签元素");
             }
         } catch (Exception e) {
             log.error("寻找或点击'expect-item'元素时出错: {}", e.getMessage());
         }
-
     }
 
     // 工具方法：兼容单字符串和数组，支持多薪资区间
@@ -567,6 +654,11 @@ public class Boss {
                                         job.setCompanyName(companyName);
                                         job.setJobName(jobName);
                                         job.setJobArea(jobArea);
+                                        // 新增：岗位城市过滤（更鲁棒）
+                                        if (!isJobInCity(job, cityName)) {
+                                            log.info("已过滤：岗位【{}】不在当前城市【{}】", jobName, cityName);
+                                            continue;
+                                        }
                                         // 获取标签列表
                                         Locator tagElements = jobCard.locator(BossElementLocators.TAG_LIST);
                                         int tagCount = tagElements.count();
@@ -916,17 +1008,16 @@ public class Boss {
                 String jobName = jobCard.locator(BossElementLocators.JOB_NAME).textContent();
                 String companyName = jobCard.locator(BossElementLocators.COMPANY_NAME).textContent();
                 String jobArea = jobCard.locator(BossElementLocators.JOB_AREA).textContent();
-                // 新增：岗位城市过滤（更鲁棒）
-                if (!isJobInCity(jobArea, cityName)) {
-                    log.info("已过滤：岗位【{}】不在当前城市【{}】", jobName, cityName);
-                    continue;
-                }
-
                 Job job = new Job();
                 job.setHref(jobCard.locator(BossElementLocators.JOB_NAME).getAttribute("href"));
                 job.setCompanyName(companyName);
                 job.setJobName(jobName);
                 job.setJobArea(jobArea);
+                // 新增：岗位城市过滤（更鲁棒）
+                if (!isJobInCity(job, cityName)) {
+                    log.info("已过滤：岗位【{}】不在当前城市【{}】", jobName, cityName);
+                    continue;
+                }
                 // 获取标签列表
                 Locator tagElements = jobCard.locator(BossElementLocators.TAG_LIST);
                 int tagCount = tagElements.count();
@@ -998,7 +1089,7 @@ public class Boss {
                     log.info("已投递过该岗位，跳过：{}", uniqueKey);
                     continue;
                 }
-                if (!isJobInCity(job.getJobArea(), cityName)) {
+                if (!isJobInCity(job, cityName)) {
                 log.info("已过滤：岗位【{}】不在当前城市【{}】", job.getJobName(), cityName);
                 continue;
             }
@@ -1344,27 +1435,49 @@ public class Boss {
                         Boolean imgResume = false;
                         if (config.getSendImgResume()) {
                             try {
+                                log.info("准备上传图片简历...尝试加载resume.jpg");
                                 // 从类路径加载 resume.jpg
                                 URL resourceUrl = Boss.class.getResource("/resume.jpg");
                                 if (resourceUrl != null) {
                                     File imageFile = new File(resourceUrl.toURI());
+                                    log.info("图片简历文件路径: {}，存在: {}，大小: {}字节", imageFile.getAbsolutePath(), imageFile.exists(), imageFile.exists() ? imageFile.length() : 0);
+                                    if (!imageFile.exists()) {
+                                        log.error("图片简历文件不存在，跳过上传");
+                                    } else {
                                     // 使用Playwright上传文件
                                     Locator fileInput = jobPage.locator(BossElementLocators.IMAGE_UPLOAD);
                                     if (fileInput.isVisible()) {
+                                            log.info("图片上传控件可见，开始上传...");
                                         fileInput.setInputFiles(new java.nio.file.Path[]{java.nio.file.Paths.get(imageFile.getPath())});
-                                        // 等待发送按钮并点击
+                                            PlaywrightUtil.sleep(2); // 等待图片上传
+                                            // 检查图片是否已出现在聊天窗口
+                                            Locator sentImage = jobPage.locator(".dialog-con img");
+                                            if (sentImage.isVisible(new Locator.IsVisibleOptions().setTimeout(2000))) {
+                                                log.info("图片简历已自动发送成功！");
+                                                imgResume = true;
+                                            } else {
+                                                // 等待图片发送按钮
                                         Locator imageSendBtn = jobPage.locator(".image-uploader-btn");
                                         if (imageSendBtn.isVisible(new Locator.IsVisibleOptions().setTimeout(2000))) {
-                                            // 发送简历图片
+                                                    log.info("图片发送按钮可见，准备点击发送...");
                                             if (!debug) {
                                                 imageSendBtn.click();
                                                 imgResume = true;
+                                                        log.info("图片简历上传并发送成功！");
+                                                    }
+                                                } else {
+                                                    log.error("图片发送按钮不可见，无法发送图片简历");
+                                                }
+                                            }
+                                        } else {
+                                            log.error("图片上传控件不可见，无法上传图片简历");
                                             }
                                         }
-                                    }
+                                } else {
+                                    log.error("未找到图片简历资源resume.jpg，跳过上传");
                                 }
                             } catch (Exception e) {
-                                log.error("获取简历图片路径失败: {}", e.getMessage());
+                                log.error("图片简历上传异常: {}", e.getMessage(), e);
                             }
                         }
 
@@ -1445,12 +1558,31 @@ public class Boss {
     @SneakyThrows
     private static int processRecommendJobs() {
         List<String> keywords = config.getKeywords();
+        // 新增：获取配置文件中的所有城市名称
+        List<String> configCityNames = config.getCityCode().stream()
+            .map(code -> {
+                boss.BossEnum.CityCode cc = boss.BossEnum.CityCode.forValue(code);
+                return cc != null ? cc.getName() : code;
+            })
+            .collect(Collectors.toList());
         for (Job job : recommendJobs) {
             Page jobPage = null;
             try {
                 String uniqueKey = getUniqueKey(job);
                 if (!allowRepeatApply && isAppliedJobValid(uniqueKey)) {
                     log.info("已投递过该岗位，跳过：{}", uniqueKey);
+                    continue;
+                }
+                // 新增：推荐岗位城市过滤
+                boolean inAnyCity = false;
+                for (String cityName : configCityNames) {
+                    if (isJobInCity(job, cityName)) {
+                        inAnyCity = true;
+                        break;
+                    }
+                }
+                if (!inAnyCity) {
+                    log.info("已过滤：推荐岗位【{}】不在配置城市【{}】", job.getJobName(), configCityNames);
                     continue;
                 }
             // 使用Playwright在新标签页中打开链接
@@ -1690,15 +1822,21 @@ public class Boss {
 
     private static Integer[] parseSalaryRange(String salaryText) {
         try {
+            if (salaryText == null || salaryText.trim().isEmpty()) return null;
             // 只保留"数字-数字K"或"数字K"部分，忽略"·XX薪"等
             String mainPart = salaryText.split("·")[0]; // 只取"10-14K"
             String[] parts = mainPart.split("-");
             if (parts.length == 2) {
-                int min = Integer.parseInt(parts[0].replaceAll("[^0-9]", ""));
-                int max = Integer.parseInt(parts[1].replaceAll("[^0-9]", ""));
+                String minStr = parts[0].replaceAll("[^0-9]", "");
+                String maxStr = parts[1].replaceAll("[^0-9]", "");
+                if (minStr.isEmpty() || maxStr.isEmpty()) return null;
+                int min = Integer.parseInt(minStr);
+                int max = Integer.parseInt(maxStr);
                 return new Integer[]{min, max};
             } else if (parts.length == 1) {
-                int val = Integer.parseInt(parts[0].replaceAll("[^0-9]", ""));
+                String valStr = parts[0].replaceAll("[^0-9]", "");
+                if (valStr.isEmpty()) return null;
+                int val = Integer.parseInt(valStr);
                 return new Integer[]{val};
             }
         } catch (Exception e) {
@@ -2229,13 +2367,52 @@ public class Boss {
     }
 
     /**
-     * 判断岗位是否属于指定城市（宽松匹配，去除"市" "区" "县"等后缀）
+     * 判断岗位是否属于指定城市（兼容多字段、多城市、代码/名称、逗号分隔等）
      */
-    private static boolean isJobInCity(String jobArea, String cityName) {
-        if (jobArea == null || cityName == null) return false;
-        String area = jobArea.replaceAll("[市区县]", "");
-        String city = cityName.replaceAll("[市区县]", "");
-        return area.contains(city) || city.contains(area);
+    private static boolean isJobInCity(Job job, String configCity) {
+        if (job == null || configCity == null) return false;
+        // 支持多字段
+        String[] cityFields = new String[] {
+            job.getJobArea(),
+            job.getJobInfo(),
+            job.getDetailAddress()
+        };
+        // 支持多城市配置
+        String[] configCities = configCity.split(",|，|/|;| |");
+        for (String field : cityFields) {
+            if (field == null) continue;
+            String[] jobCities = field.split(",|，|/|;| |");
+            for (String jc : jobCities) {
+                String jcNorm = jc.replaceAll("[市区县]", "").trim();
+                for (String cc : configCities) {
+                    String ccNorm = cc.replaceAll("[市区县]", "").trim();
+                    if (!ccNorm.isEmpty() && (jcNorm.contains(ccNorm) || ccNorm.contains(jcNorm))) {
+                        return true;
+                    }
+                }
+            }
+        }
+        return false;
+    }
+
+    /**
+     * 判断岗位是否严格命中关键词（名称、描述/职责，完整词组匹配）
+     */
+    private static boolean isJobMatchKeyword(Job job, List<String> keywords) {
+        if (job == null || keywords == null || keywords.isEmpty()) return true;
+        String jobName = job.getJobName() == null ? "" : job.getJobName();
+        String jobDesc = job.getJobKeywordTag() == null ? "" : job.getJobKeywordTag();
+        for (String kw : keywords) {
+            if (kw == null || kw.trim().isEmpty()) continue;
+            // 名称严格完整词组匹配
+            if (jobName.contains(kw)) return true;
+        }
+        // 名称未命中，再查描述/职责
+        for (String kw : keywords) {
+            if (kw == null || kw.trim().isEmpty()) continue;
+            if (jobDesc.contains(kw)) return true;
+        }
+        return false;
     }
 
     // 3. 新增方法：加载去重配置

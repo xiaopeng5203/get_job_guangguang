@@ -307,9 +307,21 @@ public class Job51 {
         JavascriptExecutor executor = CHROME_DRIVER;
         for (int i = 0; i < checkboxes.size(); i++) {
             WebElement checkbox = checkboxes.get(i);
-            executor.executeScript("arguments[0].click();", checkbox);
             String title = titles.get(i).getText();
             String company = companies.get(i).getText();
+            // 新增关键词过滤逻辑
+            boolean matchAnyKeyword = false;
+            for (String k : config.getKeywords()) {
+                if (title != null && title.toLowerCase().contains(k.toLowerCase())) {
+                    matchAnyKeyword = true;
+                    break;
+                }
+            }
+            if (!matchAnyKeyword) {
+                log.info("已过滤：岗位【{}】名称不包含任意关键字{}，公司【{}】", title, config.getKeywords(), company);
+                continue;
+            }
+            executor.executeScript("arguments[0].click();", checkbox);
             resultList.add(company + " | " + title);
             log.info("选中:{} | {} 职位", company, title);
         }

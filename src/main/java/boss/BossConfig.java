@@ -166,6 +166,10 @@ public class BossConfig {
     public Boolean getAllowRepeatApply() { return allowRepeatApply; }
     public void setAllowRepeatApply(Boolean allowRepeatApply) { this.allowRepeatApply = allowRepeatApply; }
 
+    private List<String> recommendTabPriority;
+    public List<String> getRecommendTabPriority() { return recommendTabPriority; }
+    public void setRecommendTabPriority(List<String> recommendTabPriority) { this.recommendTabPriority = recommendTabPriority; }
+
     public Object getSalary() {
         return salary;
     }
