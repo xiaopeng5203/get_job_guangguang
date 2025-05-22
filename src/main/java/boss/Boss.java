@@ -1566,6 +1566,21 @@ public class Boss {
             })
             .collect(Collectors.toList());
         for (Job job : recommendJobs) {
+            // 推荐岗位：只判断岗位名称是否包含关键词
+            boolean containsKeyword = false;
+            if (keywords != null && !keywords.isEmpty()) {
+                String lowerCaseJobName = job.getJobName() == null ? "" : job.getJobName().toLowerCase();
+                for (String keywordItem : keywords) {
+                    if (lowerCaseJobName.contains(keywordItem.toLowerCase())) {
+                        containsKeyword = true;
+                        break;
+                    }
+                }
+            }
+            if (!containsKeyword) {
+                log.info("推荐岗位【{}】名称不包含任何关键字，已跳过", job.getJobName());
+                continue;
+            }
             Page jobPage = null;
             try {
                 String uniqueKey = getUniqueKey(job);
@@ -1667,29 +1682,7 @@ public class Boss {
             }
                 job.setSalary(salaryInfo.isEmpty() ? job.getSalary() : salaryInfo);
 
-            // 修改后的关键词匹配逻辑，检查岗位名称、描述或职责是否包含任一关键词
-            boolean containsKeyword = false;
-            if (keywords != null && !keywords.isEmpty()) {
-                String lowerCaseJobName = job.getJobName().toLowerCase();
-                String lowerCaseJobDescription = job.getJobKeywordTag().toLowerCase();
 
-                for (String keywordItem : keywords) {
-                    String lowerCaseKeywordItem = keywordItem.toLowerCase();
-                    // 只要岗位名称、描述或职责中包含关键词之一，就视为匹配
-                    if (lowerCaseJobName.contains(lowerCaseKeywordItem) || 
-                        lowerCaseJobDescription.contains(lowerCaseKeywordItem)) {
-                        containsKeyword = true;
-                        break;
-    }
-                }
-            }
-
-            // 如果不包含任何关键字，则跳过此职位
-            if (!keywords.isEmpty() && !containsKeyword) {
-                log.info("已过滤:【{}】公司【{}】推荐岗位，名称或描述不包含任何关键字", job.getCompanyName(), job.getJobName());
-                jobPage.close();
-                continue;
-            }
 
             // 处理职位详情页 (薪资过滤和黑名单公司过滤等)
             int result = processJobDetail(jobPage, job, null);
