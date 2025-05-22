@@ -1,5 +1,23 @@
 # 🍀Get Jobs【Boss直聘自动化投递增强版】
 
+<div align="center">
+  <h2>作者：光光</h2>
+  <p>全栈工程师 | 自动化与AI应用实践者 | 开源爱好者</p>
+  <p>
+    <img src="https://img.shields.io/badge/Java-21+-blue?logo=java"/>
+    <img src="https://img.shields.io/badge/Python-3.x-yellow?logo=python"/>
+    <img src="https://img.shields.io/badge/AI%20应用-实践者-green"/>
+    <img src="https://img.shields.io/badge/自动化-专家-orange"/>
+  </p>
+  <p>
+    <b>个人简介：</b>热爱技术，专注于自动化、AI与高效工具开发。致力于用代码提升生产力，帮助更多人高效求职、成长与进步。<br>
+    喜欢开源、乐于分享，欢迎交流合作！
+  </p>
+  <p>
+    <b>联系方式：</b> QQ交流群见项目二维码 | <a href="mailto:mrblackgu@gmail.com">mrblackgu@gmail.com</a>
+  </p>
+</div>
+
 ## 项目简介
 
 本项目是一款专为程序员/技术岗位打造的**自动化智能投递工具**，支持Boss直聘、猎聘、拉勾、智联招聘、51Job等主流招聘平台。通过AI智能打招呼、自动筛选岗位、批量高效投递、企业微信实时推送等功能，极大提升找工作效率和投递命中率。
