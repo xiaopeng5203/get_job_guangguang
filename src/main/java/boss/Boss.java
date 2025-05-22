@@ -2099,22 +2099,22 @@ public class Boss {
                     n = n.replaceAll("[（）()\s]", "").replaceAll("(有限责任公司|有限公司|公司|集团|控股|股份|分公司|子公司)", "");
                     i = i.replaceAll("[（）()\s]", "").replaceAll("(有限责任公司|有限公司|公司|集团|控股|股份|分公司|子公司)", "");
                 }
-                if (n.contains(i)) {
-                // 首次命中记录 addTime 并持久化
-                if (item.days != null && item.addTime == null) {
-                    item.addTime = System.currentTimeMillis();
-                    Map<String, Object> map = blacklistTimeData.getOrDefault(typeKey, new HashMap<>());
-                    Map<String, Object> v = new HashMap<>();
-                    v.put("addTime", item.addTime);
-                    v.put("days", item.days);
-                    map.put(item.name, v);
-                    blacklistTimeData.put(typeKey, map);
-                    saveBlacklistTime();
-                }
-                if (item.isExpired()) continue;
-                long remain = item.remainDays();
-                log.info("已过滤：{}黑名单命中【{}】，剩余有效天数：{}，岗位【{}】", type, item.name, remain == Long.MAX_VALUE ? "永久" : remain + "天", jobName);
-                return true;
+                if (n.toLowerCase().contains(i.toLowerCase())) {
+                    // 首次命中记录 addTime 并持久化
+                    if (item.days != null && item.addTime == null) {
+                        item.addTime = System.currentTimeMillis();
+                        Map<String, Object> map = blacklistTimeData.getOrDefault(typeKey, new HashMap<>());
+                        Map<String, Object> v = new HashMap<>();
+                        v.put("addTime", item.addTime);
+                        v.put("days", item.days);
+                        map.put(item.name, v);
+                        blacklistTimeData.put(typeKey, map);
+                        saveBlacklistTime();
+                    }
+                    if (item.isExpired()) continue;
+                    long remain = item.remainDays();
+                    log.info("已过滤：{}黑名单命中【{}】，剩余有效天数：{}，岗位【{}】", type, item.name, remain == Long.MAX_VALUE ? "永久" : remain + "天", jobName);
+                    return true;
                 }
             }
         }
