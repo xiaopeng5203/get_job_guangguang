@@ -50,7 +50,14 @@ public class H5BossConfig {
     /**
      * 薪资范围
      */
-    private String salary;
+    private Object salary;
+
+    public Object getSalary() {
+        return salary;
+    }
+    public void setSalary(Object salary) {
+        this.salary = salary;
+    }
 
     /**
      * 学历要求列表
@@ -154,8 +161,15 @@ public class H5BossConfig {
     public static H5BossConfig init() {
         H5BossConfig config = JobUtils.getConfig(H5BossConfig.class);
 
-        // 转换薪资范围
-        config.setSalary(H5BossEnum.Salary.forValue(config.getSalary()).getCode());
+        // 转换薪资范围，兼容数组和字符串
+        Object salaryObj = config.getSalary();
+        if (salaryObj instanceof List) {
+            List<String> salaryList = (List<String>) salaryObj;
+            List<String> codeList = salaryList.stream().map(s -> H5BossEnum.Salary.forValue(s).getCode()).collect(Collectors.toList());
+            config.setSalary(codeList);
+        } else if (salaryObj instanceof String) {
+            config.setSalary(H5BossEnum.Salary.forValue((String) salaryObj).getCode());
+        }
 
         // 处理城市编码
         List<String> convertedCityCodes = config.getCityCode().stream()

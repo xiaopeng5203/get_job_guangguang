@@ -461,9 +461,41 @@ public class Boss {
 
     }
 
+    // 工具方法：兼容单字符串和数组，支持多薪资区间
+    // config.yaml 示例：salary: ["10-20K", "20-50K"] 或 salary: "20-50K"
+    private static List<String> getSalaryList() {
+        Object salaryObj = config.getSalary();
+        if (salaryObj instanceof List) {
+            return (List<String>) salaryObj;
+        } else if (salaryObj instanceof String) {
+            return java.util.Collections.singletonList((String) salaryObj);
+        } else {
+            return java.util.Collections.singletonList("");
+        }
+    }
 
+    // 新增：岗位核心名称和薪资区间提取
+    private static String getCoreJobName(String jobName) {
+        if (jobName == null) return "";
+        // 去除括号及括号内内容、去除多余后缀
+        return jobName.replaceAll("[（(][^）)]*[）)]", "").replaceAll("[\s·]+", "").replaceAll("[0-9A-Za-z]+$", "").trim();
+    }
+    private static String getCoreSalary(String salaryText) {
+        Integer[] range = parseSalaryRange(salaryText == null ? "" : salaryText);
+        if (range == null || range.length == 0) return "";
+        if (range.length == 2) return range[0] + "-" + range[1] + "K";
+        return range[0] + "K";
+    }
+    // 修改唯一标识为 公司名称|岗位核心名称|岗位核心薪资区间
+    private static String getUniqueKey(Job job) {
+        String company = job.getCompanyName() == null ? "" : job.getCompanyName();
+        String jobCore = getCoreJobName(job.getJobName());
+        String salaryCore = getCoreSalary(job.getSalary());
+        return company + "|" + jobCore + "|" + salaryCore;
+    }
+
+    // 主流程：遍历每个薪资区间
     private static void postJobByCityByPlaywright(String cityCode) {
-        // 新增：根据cityCode反查城市名
         String cityName = null;
         for (boss.BossEnum.CityCode cc : boss.BossEnum.CityCode.values()) {
             if (cc.getCode().equals(cityCode)) {
@@ -471,18 +503,22 @@ public class Boss {
                 break;
             }
         }
-        if (cityName == null) cityName = cityCode; // 兜底
-        String searchUrl = getSearchUrl(cityCode);
+        if (cityName == null) cityName = cityCode;
+        List<String> experienceList = config.getExperience();
+        List<String> salaryList = getSalaryList();
+        List<String> scaleList = config.getScale();
+        for (String experience : experienceList) {
+            for (String salary : salaryList) {
+                for (String scale : scaleList) {
         for (String keyword : config.getKeywords()) {
             String encodedKeyword = URLEncoder.encode(keyword, StandardCharsets.UTF_8);
-            String url = searchUrl + "&query=" + encodedKeyword;
-            log.info("查询岗位链接:{}", url);
-
+                        String url = getSearchUrl(cityCode, salary, experience, scale) + "&query=" + encodedKeyword;
+                        log.info("查询岗位链接:{} (经验:{} 薪资:{} 规模:{})", url, experience, salary, scale);
             Page page = PlaywrightUtil.getPageObject().context().newPage();
             PlaywrightUtil.loadCookies(cookiePath);
             try {
                 page.navigate(url, new Page.NavigateOptions().setTimeout(60000));
-                // 滚动加载所有岗位
+                            // 滚动加载所有岗位
                 int previousJobCount = 0;
                 int currentJobCount = 0;
                 int unchangedCount = 0;
@@ -513,65 +549,66 @@ public class Boss {
                         log.info("已获取所有可加载岗位，共计: " + currentJobCount + " 个");
                     } catch (Exception e) {
                         log.error("滚动加载数据异常: {}", e.getMessage());
-                    }
-                }
-                // 滚动加载完成后，重新获取所有岗位卡片，全部收集后统一处理
-                List<Job> jobs = new ArrayList<>();
-                try {
-                    Locator jobLocators = BossElementFinder.getPlaywrightLocator(page, BossElementLocators.JOB_CARD_BOX);
-                    int count = jobLocators.count();
-                    for (int i = 0; i < count; i++) {
-                        try {
-                            Locator jobCard = jobLocators.nth(i);
-                            String jobName = jobCard.locator(BossElementLocators.JOB_NAME).textContent();
-                            String companyName = jobCard.locator(BossElementLocators.COMPANY_NAME).textContent();
-                            String jobArea = jobCard.locator(BossElementLocators.JOB_AREA).textContent();
-                            Job job = new Job();
-                            job.setHref(jobCard.locator(BossElementLocators.JOB_NAME).getAttribute("href"));
-                            job.setCompanyName(companyName);
-                            job.setJobName(jobName);
-                            job.setJobArea(jobArea);
-                            // 获取标签列表
-                            Locator tagElements = jobCard.locator(BossElementLocators.TAG_LIST);
-                            int tagCount = tagElements.count();
-                            StringBuilder tag = new StringBuilder();
-                            for (int j = 0; j < tagCount; j++) {
-                                tag.append(tagElements.nth(j).textContent()).append("·");
+                                }
                             }
-                            if (tag.length() > 0) {
-                                job.setCompanyTag(tag.substring(0, tag.length() - 1));
-                            } else {
-                                job.setCompanyTag("");
+                            // 滚动加载完成后，重新获取所有岗位卡片，全部收集后统一处理
+                            List<Job> jobs = new ArrayList<>();
+                            try {
+                                Locator jobLocators = BossElementFinder.getPlaywrightLocator(page, BossElementLocators.JOB_CARD_BOX);
+                                int count = jobLocators.count();
+                                for (int i = 0; i < count; i++) {
+                                    try {
+                                        Locator jobCard = jobLocators.nth(i);
+                                        String jobName = jobCard.locator(BossElementLocators.JOB_NAME).textContent();
+                                        String companyName = jobCard.locator(BossElementLocators.COMPANY_NAME).textContent();
+                                        String jobArea = jobCard.locator(BossElementLocators.JOB_AREA).textContent();
+                                        Job job = new Job();
+                                        job.setHref(jobCard.locator(BossElementLocators.JOB_NAME).getAttribute("href"));
+                                        job.setCompanyName(companyName);
+                                        job.setJobName(jobName);
+                                        job.setJobArea(jobArea);
+                                        // 获取标签列表
+                                        Locator tagElements = jobCard.locator(BossElementLocators.TAG_LIST);
+                                        int tagCount = tagElements.count();
+                                        StringBuilder tag = new StringBuilder();
+                                        for (int j = 0; j < tagCount; j++) {
+                                            tag.append(tagElements.nth(j).textContent()).append("·");
+                                        }
+                                        if (tag.length() > 0) {
+                                            job.setCompanyTag(tag.substring(0, tag.length() - 1));
+                                        } else {
+                                            job.setCompanyTag("");
+                                        }
+                                        // 设置当前薪资区间
+                                        job.setSalary(salary);
+                                        jobs.add(job);
+                                    } catch (Exception e) {
+                                        log.debug("处理岗位卡片失败: {}", e.getMessage());
+                                    }
+                                }
+                            } catch (Exception e) {
+                                log.error("收集岗位卡片失败: {}", e.getMessage());
                             }
-                            jobs.add(job);
-                        } catch (Exception e) {
-                            log.debug("处理岗位卡片失败: {}", e.getMessage());
-                        }
-                    }
-                } catch (Exception e) {
-                    log.error("收集岗位卡片失败: {}", e.getMessage());
-                }
-                // 统一处理所有岗位
-                int result = processJobListDetails(jobs, keyword, page, cityName);
-                if (result == -1) { // 达到沟通上限
-                    // 先关闭所有页面和浏览器
-                    try { PlaywrightUtil.close(); } catch (Exception ignore) {}
-                    // 构造推送内容
-                    StringBuilder sb = new StringBuilder();
-                    sb.append("【Boss直聘】今日投递汇总\n");
-                    sb.append(String.format("共发起 %d 个聊天，用时 %s\n", resultList.size(), formatDuration(startDate, new Date())));
-                    sb.append("-------------------------\n");
-                    int idx = 1;
-                    for (Job job : resultList) {
-                        sb.append(String.format("%d. %s @ %s | %s | %s\n", idx++, job.getJobName(), job.getCompanyName(), job.getSalary() == null ? "" : job.getSalary(), job.getJobArea() == null ? "" : job.getJobArea()));
-                    }
-                    sb.append("-------------------------\n");
-                    sb.append("祝你早日找到心仪的工作！");
-                    String barkMsg = sb.toString();
-                    utils.Bot.sendBark(barkMsg);
-                    log.info(barkMsg);
-                    System.exit(0);
-                }
+                            // 统一处理所有岗位
+                            int result = processJobListDetails(jobs, keyword, page, cityName);
+                            if (result == -1) {
+                                try { PlaywrightUtil.close(); } catch (Exception ignore) {}
+                                // 构造推送内容
+                                StringBuilder sb = new StringBuilder();
+                                sb.append("【Boss直聘】今日投递汇总\n");
+                                sb.append(String.format("共发起 %d 个聊天，用时 %s\n", resultList.size(), formatDuration(startDate, new Date())));
+                                sb.append("-------------------------\n");
+                                int idx = 1;
+                                for (Job job : resultList) {
+                                    sb.append(String.format("%d. %s @ %s | %s | %s\n", idx++, job.getJobName(), job.getCompanyName(), job.getSalary() == null ? "" : job.getSalary(), job.getJobArea() == null ? "" : job.getJobArea()));
+                                }
+                                sb.append("-------------------------\n");
+                                sb.append("祝你早日找到心仪的工作！");
+                                String barkMsg = sb.toString();
+                                utils.Bot.sendBark(barkMsg);
+                                log.info(barkMsg);
+                                System.exit(0);
+                            }
             } catch (Exception e) {
                 log.error("页面跳转超时: {}，url: {}", e.getMessage(), url);
                 continue;
@@ -581,12 +618,27 @@ public class Boss {
                 }
             }
             try {
-                Thread.sleep(3000); // 每次投递后休息3秒
+                            Thread.sleep(3000);
             } catch (InterruptedException ie) {
                 Thread.currentThread().interrupt();
                 log.warn("线程休眠被中断: {}", ie.getMessage());
             }
         }
+                }
+            }
+        }
+    }
+
+    // 新增多参数getSearchUrl
+    private static String getSearchUrl(String cityCode, String salary, String experience, String scale) {
+        return baseUrl + JobUtils.appendParam("city", cityCode) +
+                JobUtils.appendParam("jobType", config.getJobType()) +
+                JobUtils.appendParam("salary", salary) +
+                JobUtils.appendListParam("experience", Collections.singletonList(experience)) +
+                JobUtils.appendListParam("degree", config.getDegree()) +
+                JobUtils.appendListParam("scale", Collections.singletonList(scale)) +
+                JobUtils.appendListParam("industry", config.getIndustry()) +
+                JobUtils.appendListParam("stage", config.getStage());
     }
 
     private static boolean isJobsPresent() {
@@ -600,17 +652,7 @@ public class Boss {
         }
     }
 
-    private static String getSearchUrl(String cityCode) {
-        return baseUrl + JobUtils.appendParam("city", cityCode) +
-                JobUtils.appendParam("jobType", config.getJobType()) +
-                JobUtils.appendParam("salary", config.getSalary()) +
-                JobUtils.appendListParam("experience", config.getExperience()) +
-                JobUtils.appendListParam("degree", config.getDegree()) +
-                JobUtils.appendListParam("scale", config.getScale()) +
-                JobUtils.appendListParam("industry", config.getIndustry()) +
-                JobUtils.appendListParam("stage", config.getStage());
-    }
-
+    // 优化 saveData 方法，纵向排列所有数组
     private static void saveData(String path) {
         try {
             updateListData();
@@ -620,6 +662,7 @@ public class Boss {
             data.put("blackRecruiters", blackRecruiters);
             data.put("blackJobs", blackJobs);
             data.put(appliedJobsKey, new java.util.ArrayList<>(appliedJobs));
+            // 使用美化输出，纵向排列
             mapper.writerWithDefaultPrettyPrinter().writeValue(new java.io.File(path), data);
         } catch (IOException e) {
             log.error("保存【{}】数据失败！", path);
@@ -950,9 +993,8 @@ public class Boss {
         for (Job job : jobs) {
             Page jobPage = null;
             try {
-                // 新增：岗位唯一标识
-                String uniqueKey = job.getCompanyName() + "|" + job.getRecruiter() + "|" + job.getJobName();
-                if (!allowRepeatApply && appliedJobs.contains(uniqueKey)) {
+                String uniqueKey = getUniqueKey(job);
+                if (!allowRepeatApply && isAppliedJobValid(uniqueKey)) {
                     log.info("已投递过该岗位，跳过：{}", uniqueKey);
                     continue;
                 }
@@ -1086,8 +1128,8 @@ public class Boss {
                 break;
                 }
                 if (result == 0) {
-                    // 投递成功，记录唯一标识
-                    appliedJobs.add(uniqueKey);
+                    // 投递成功，记录唯一标识+时间戳
+                    appliedJobs.add(uniqueKey + "|" + System.currentTimeMillis());
                     saveAppliedJobs();
                 }
             } catch (Exception e) {
@@ -1327,7 +1369,7 @@ public class Boss {
                         }
 
                         PlaywrightUtil.sleep(2);
-                        log.info("正在投递【{}】公司，【{}】职位，招聘官:【{}】{}", company, position, recruiter,
+                        log.info("正在投递【{}】公司，【{}】职位，薪资区间：【{}】，招聘官:【{}】{}", company, position, job.getSalary(), recruiter,
                                 imgResume ? "发送图片简历成功！" : "");
                         // 投递成功，添加到结果列表
                         resultList.add(job);
@@ -1406,9 +1448,8 @@ public class Boss {
         for (Job job : recommendJobs) {
             Page jobPage = null;
             try {
-                // 新增：岗位唯一标识
-                String uniqueKey = job.getCompanyName() + "|" + job.getRecruiter() + "|" + job.getJobName();
-                if (!allowRepeatApply && appliedJobs.contains(uniqueKey)) {
+                String uniqueKey = getUniqueKey(job);
+                if (!allowRepeatApply && isAppliedJobValid(uniqueKey)) {
                     log.info("已投递过该岗位，跳过：{}", uniqueKey);
                     continue;
                 }
@@ -1532,8 +1573,8 @@ public class Boss {
                 break;
                 }
                 if (result == 0) {
-                    // 投递成功，记录唯一标识
-                    appliedJobs.add(uniqueKey);
+                    // 投递成功，记录唯一标识+时间戳
+                    appliedJobs.add(uniqueKey + "|" + System.currentTimeMillis());
                     saveAppliedJobs();
                 }
             } catch (Exception e) {
@@ -1649,11 +1690,19 @@ public class Boss {
 
     private static Integer[] parseSalaryRange(String salaryText) {
         try {
-            return Arrays.stream(salaryText.split("-")).map(s -> s.replaceAll("[^0-9]", "")) // 去除非数字字符
-                    .map(Integer::parseInt) // 转换为Integer
-                    .toArray(Integer[]::new); // 转换为Integer数组
+            // 只保留"数字-数字K"或"数字K"部分，忽略"·XX薪"等
+            String mainPart = salaryText.split("·")[0]; // 只取"10-14K"
+            String[] parts = mainPart.split("-");
+            if (parts.length == 2) {
+                int min = Integer.parseInt(parts[0].replaceAll("[^0-9]", ""));
+                int max = Integer.parseInt(parts[1].replaceAll("[^0-9]", ""));
+                return new Integer[]{min, max};
+            } else if (parts.length == 1) {
+                int val = Integer.parseInt(parts[0].replaceAll("[^0-9]", ""));
+                return new Integer[]{val};
+            }
         } catch (Exception e) {
-            log.error("薪资解析异常！{}", e.getMessage(), e);
+            log.error("薪资解析异常！{}，原始薪资文本：{}", e.getMessage(), salaryText, e);
         }
         return null;
     }
@@ -1970,7 +2019,16 @@ public class Boss {
         // 学历
         List<String> degree = h5Config.getDegree();
         // 薪资
-        String salary = h5Config.getSalary();
+        Object salaryObj = h5Config.getSalary();
+        String salary;
+        if (salaryObj instanceof List) {
+            List<?> salaryList = (List<?>) salaryObj;
+            salary = salaryList.isEmpty() ? "" : String.valueOf(salaryList.get(0));
+        } else if (salaryObj != null) {
+            salary = String.valueOf(salaryObj);
+        } else {
+            salary = "";
+        }
         // 规模
         List<String> scale = h5Config.getScale();
 
@@ -2090,31 +2148,35 @@ public class Boss {
     // === 新增：黑名单过滤逻辑 ===
     static boolean isInBlackList(List<BlackItem> list, String name, String type, String jobName) {
         String typeKey = type.equals("公司") ? "companies" : type.equals("岗位") ? "jobs" : "recruiters";
+        if (name == null) return false;
+        String n = name.replaceAll("[\\s\\u00A0]", "").replaceAll("[·/|\\-]", "");
         for (BlackItem item : list) {
-            if (name != null && item.name != null) {
-                String n = name;
-                String i = item.name;
-                if ("公司".equals(type)) {
-                    // 去除常见公司后缀和括号、空格
-                    n = n.replaceAll("[（）()\s]", "").replaceAll("(有限责任公司|有限公司|公司|集团|控股|股份|分公司|子公司)", "");
-                    i = i.replaceAll("[（）()\s]", "").replaceAll("(有限责任公司|有限公司|公司|集团|控股|股份|分公司|子公司)", "");
+            if (item.name != null) {
+                String regex = item.name;
+                // 自动加忽略大小写前缀
+                if (!regex.startsWith("(?i)")) regex = "(?i)" + regex;
+                try {
+                    if (java.util.regex.Pattern.compile(regex).matcher(n).find()) {
+                        // 日志：打印黑名单和岗位名
+                        log.info("正则黑名单项: [{}], 当前岗位名: [{}]", regex, n);
+                // 首次命中记录 addTime 并持久化
+                if (item.days != null && item.addTime == null) {
+                    item.addTime = System.currentTimeMillis();
+                    Map<String, Object> map = blacklistTimeData.getOrDefault(typeKey, new HashMap<>());
+                    Map<String, Object> v = new HashMap<>();
+                    v.put("addTime", item.addTime);
+                    v.put("days", item.days);
+                    map.put(item.name, v);
+                    blacklistTimeData.put(typeKey, map);
+                    saveBlacklistTime();
                 }
-                if (n.toLowerCase().contains(i.toLowerCase())) {
-                    // 首次命中记录 addTime 并持久化
-                    if (item.days != null && item.addTime == null) {
-                        item.addTime = System.currentTimeMillis();
-                        Map<String, Object> map = blacklistTimeData.getOrDefault(typeKey, new HashMap<>());
-                        Map<String, Object> v = new HashMap<>();
-                        v.put("addTime", item.addTime);
-                        v.put("days", item.days);
-                        map.put(item.name, v);
-                        blacklistTimeData.put(typeKey, map);
-                        saveBlacklistTime();
+                if (item.isExpired()) continue;
+                long remain = item.remainDays();
+                        log.info("已过滤：{}正则黑名单命中【{}】，剩余有效天数：{}，岗位【{}】", type, item.name, remain == Long.MAX_VALUE ? "永久" : remain + "天", jobName);
+                return true;
                     }
-                    if (item.isExpired()) continue;
-                    long remain = item.remainDays();
-                    log.info("已过滤：{}黑名单命中【{}】，剩余有效天数：{}，岗位【{}】", type, item.name, remain == Long.MAX_VALUE ? "永久" : remain + "天", jobName);
-                    return true;
+                } catch (Exception e) {
+                    log.warn("黑名单正则有误: [{}]", regex);
                 }
             }
         }
@@ -2199,10 +2261,34 @@ public class Boss {
             com.fasterxml.jackson.databind.ObjectMapper mapper = new com.fasterxml.jackson.databind.ObjectMapper();
             java.util.Map<String, Object> data = mapper.readValue(new java.io.File(dataPath), java.util.HashMap.class);
             data.put(appliedJobsKey, new java.util.ArrayList<>(appliedJobs));
+            // 使用美化输出，纵向排列
             mapper.writerWithDefaultPrettyPrinter().writeValue(new java.io.File(dataPath), data);
         } catch (Exception e) {
             log.warn("保存appliedJobs失败: {}", e.getMessage());
         }
     }
+
+    // 修改appliedJobs为带时间戳的唯一标识：公司|岗位核心名|薪资|时间戳
+    // 保存时 appliedJobs.add(uniqueKey + "|" + System.currentTimeMillis());
+    // 判断时，解析时间戳，若未过期则跳过，过期则允许重新投递
+    private static boolean isAppliedJobValid(String uniqueKey) {
+        long expireDays = config.getDeliverExpireDays() == null ? 30 : config.getDeliverExpireDays();
+        long now = System.currentTimeMillis();
+        for (String record : appliedJobs) {
+            String[] arr = record.split("\\|");
+            if (arr.length < 4) continue;
+            String key = arr[0] + "|" + arr[1] + "|" + arr[2];
+            long ts = 0;
+            try { ts = Long.parseLong(arr[3]); } catch (Exception ignore) {}
+            if (uniqueKey.equals(key)) {
+                if (now - ts < expireDays * 24 * 60 * 60 * 1000L) {
+                    return true; // 未过期，不可重复投递
+                }
+            }
+        }
+        return false;
+    }
+    // 在 processJobListDetails、processRecommendJobs 等所有投递前判断 isAppliedJobValid(uniqueKey)
+    // 投递成功后保存 appliedJobs.add(uniqueKey + "|" + System.currentTimeMillis());
 
 }

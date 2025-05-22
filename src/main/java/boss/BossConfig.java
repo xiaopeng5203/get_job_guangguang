@@ -58,7 +58,7 @@ public class BossConfig {
     /**
      * 薪资范围
      */
-    private String salary;
+    private Object salary;
 
     /**
      * 学历要求列表
@@ -166,14 +166,28 @@ public class BossConfig {
     public Boolean getAllowRepeatApply() { return allowRepeatApply; }
     public void setAllowRepeatApply(Boolean allowRepeatApply) { this.allowRepeatApply = allowRepeatApply; }
 
+    public Object getSalary() {
+        return salary;
+    }
+    public void setSalary(Object salary) {
+        this.salary = salary;
+    }
+
     @SneakyThrows
     public static BossConfig init() {
         BossConfig config = JobUtils.getConfig(BossConfig.class);
 
         // 转换工作类型
         config.setJobType(BossEnum.JobType.forValue(config.getJobType()).getCode());
-        // 转换薪资范围
-        config.setSalary(BossEnum.Salary.forValue(config.getSalary()).getCode());
+        // 转换薪资范围，兼容数组和字符串
+        Object salaryObj = config.getSalary();
+        if (salaryObj instanceof List) {
+            List<String> salaryList = (List<String>) salaryObj;
+            List<String> codeList = salaryList.stream().map(s -> BossEnum.Salary.forValue(s).getCode()).collect(Collectors.toList());
+            config.setSalary(codeList);
+        } else if (salaryObj instanceof String) {
+            config.setSalary(BossEnum.Salary.forValue((String) salaryObj).getCode());
+        }
         // 转换城市编码
 //        config.setCityCode(config.getCityCode().stream().map(value -> BossEnum.CityCode.forValue(value).getCode()).collect(Collectors.toList()));
         List<String> convertedCityCodes = config.getCityCode().stream()
@@ -197,7 +211,6 @@ public class BossConfig {
         config.setStage(config.getStage().stream().map(value -> BossEnum.Financing.forValue(value).getCode()).collect(Collectors.toList()));
         // 转换行业
         config.setIndustry(config.getIndustry().stream().map(value -> BossEnum.Industry.forValue(value).getCode()).collect(Collectors.toList()));
-
         return config;
     }
 

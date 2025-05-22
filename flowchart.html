@@ -1,0 +1,384 @@
+<!DOCTYPE html>
+<html>
+<head>
+<title>Boss直聘自动化投递系统逻辑流程图 (详细轮询逻辑)</title>
+<style>
+  .flowchart {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    font-family: sans-serif;
+    padding: 20px;
+  }
+  .node {
+    background-color: #f0f0f0;
+    border: 1px solid #ccc;
+    padding: 10px;
+    margin: 10px;
+    border-radius: 5px;
+    text-align: center;
+    position: relative;
+    width: 200px;
+    box-sizing: border-box;
+  }
+  .process {
+    background-color: #e0f7fa;
+  }
+  .decision {
+    background-color: #fff9c4;
+    shape-outside: polygon(50% 0%, 100% 50%, 50% 100%, 0% 50%);
+    clip-path: polygon(50% 0%, 100% 50%, 50% 100%, 0% 50%);
+    width: 120px;
+    height: 80px;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    padding: 20px;
+    margin: 20px auto;
+    box-sizing: border-box;
+  }
+  .loop {
+      background-color: #ede7f6;
+      font-weight: bold;
+  }
+  .loop .nested {
+      font-weight: normal;
+      margin-top: 5px;
+      font-size: 0.9em;
+  }
+  .start-end {
+      background-color: #c8e6c9;
+  }
+  .arrow {
+    width: 0;
+    height: 0;
+    border-left: 5px solid transparent;
+    border-right: 5px solid transparent;
+    border-top: 10px solid #333;
+    margin: 5px auto;
+  }
+  .connector-line {
+      width: 2px;
+      background-color: #333;
+      flex-grow: 1;
+      margin: 0 auto;
+  }
+   .tooltip {
+    position: absolute;
+    bottom: 100%;
+    left: 50%;
+    transform: translateX(-50%);
+    background-color: #555;
+    color: #fff;
+    padding: 5px;
+    border-radius: 5px;
+    visibility: hidden;
+    opacity: 0;
+    transition: opacity 0.3s;
+    z-index: 1;
+    white-space: nowrap;
+  }
+  .node:hover .tooltip {
+    visibility: visible;
+    opacity: 1;
+  }
+
+  /* Specific styles for nested loops */
+  .nested-loop-container {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      border: 1px dashed #673ab7;
+      padding: 10px;
+      margin: 10px;
+      width: 80%;
+  }
+   .nested-loop-title {
+       font-weight: bold;
+       margin-bottom: 10px;
+       color: #673ab7;
+   }
+   .horizontal-flow {
+       display: flex;
+       align-items: center;
+       margin: 5px 0;
+   }
+   .horizontal-flow .arrow {
+       margin: 0 5px;
+       transform: rotate(90deg);
+   }
+  .label {
+    display: inline-block;
+    background: #ede7f6;
+    color: #512da8;
+    border-radius: 4px;
+    padding: 2px 8px;
+    margin: 0 2px;
+    font-size: 0.95em;
+    border: 1px solid #d1c4e9;
+  }
+  .logic-detail {
+    background: #f8f9fa;
+    border-left: 4px solid #b39ddb;
+    margin: 8px 0 8px 0;
+    padding: 10px 18px 10px 18px;
+    font-size: 0.98em;
+    color: #333;
+  }
+  .logic-detail .pseudo-code {
+    background: #ede7f6;
+    color: #5e35b1;
+    font-family: 'Fira Mono', 'Consolas', monospace;
+    padding: 4px 10px;
+    border-radius: 4px;
+    margin: 6px 0;
+    display: inline-block;
+    font-size: 0.97em;
+  }
+  .logic-detail .example-block {
+    background: #fffde7;
+    color: #8d6e63;
+    border-radius: 4px;
+    padding: 4px 10px;
+    margin: 6px 0;
+    display: inline-block;
+    font-size: 0.97em;
+  }
+  .logic-detail .nest-desc {
+    color: #607d8b;
+    font-size: 0.96em;
+    margin-top: 4px;
+  }
+  .logic-detail.nest { margin-left: 18px; border-left: 4px solid #9575cd; }
+  .logic-detail.nest2 { margin-left: 36px; border-left: 4px solid #7986cb; }
+  .logic-detail.nest3 { margin-left: 54px; border-left: 4px solid #64b5f6; }
+  .logic-detail.nest4 { margin-left: 72px; border-left: 4px solid #4dd0e1; }
+  .logic-detail.nest5 { margin-left: 90px; border-left: 4px solid #4db6ac; }
+  .logic-detail.nest6 { margin-left: 108px; border-left: 4px solid #aed581; }
+</style>
+</head>
+<body>
+
+<div class="flowchart">
+
+  <div class="node start-end">开始<span class="tooltip">自动化投递流程开始</span></div>
+  <div class="arrow"></div>
+  <div class="connector-line"></div>
+
+  <div class="node process">
+      加载配置文件 (config.yaml)
+      <span class="tooltip">读取并解析 config.yaml 中的所有配置参数</span>
+  </div>
+  <div class="arrow"></div>
+  <div class="connector-line"></div>
+
+  <div class="node process">
+      识别参与轮询参数
+      <span class="tooltip">从配置中找出所有列表形式（[]）的参数：keywords, industry, cityCode, experience, salary, degree, scale, stage。</span>
+  </div>
+   <div class="arrow"></div>
+  <div class="connector-line"></div>
+
+
+  <div class="nested-loop-container">
+      <div class="nested-loop-title">多维度全排列轮询 (按配置顺序)</div>
+
+      <div class="node loop">遍历 keywords<span class="tooltip">依次取出 keywords 列表中的每一个关键词</span></div>
+      <div class="logic-detail">
+        <div><b>循环逻辑：</b>依次从 <b>keywords</b> 列表中取出每一个关键词，固定为当前搜索关键词，进入下层 <b>industry</b> 循环。下层及其所有内部循环全部完成后，回到本层，取下一个关键词，直到 <b>keywords</b> 列表遍历完毕。</div>
+        <div class="pseudo-code">for keyword in keywords:<br>&nbsp;&nbsp;# 固定当前keyword，进入industry循环</div>
+        <div class="example-block"><b>示例：</b>当前keyword=“售前”，进入industry循环...</div>
+        <div class="nest-desc">下层industry循环全部完成后，回到本层，取下一个keyword。</div>
+      </div>
+      <div class="horizontal-flow">
+        <span class="label">售前</span><span class="label">解决方案</span><span class="label">售前工程师</span><span class="label">解决方案工程师</span><span class="label">售前经理</span><span class="label">解决方案经理</span><span class="label">售前主管</span><span class="label">解决方案主管</span><span class="label">售前总监</span><span class="label">解决方案总监</span><span class="label">项目经理</span><span class="label">项目总监</span>
+      </div>
+      <div class="arrow"></div><div class="connector-line"></div>
+
+      <div class="node loop">遍历 industry<span class="tooltip">依次取出 industry 列表中的每一个行业</span></div>
+      <div class="logic-detail nest">
+        <div><b>循环逻辑：</b>对于当前keyword，依次从 <b>industry</b> 列表中取出每一个行业，固定为当前行业，进入下层 <b>cityCode</b> 循环。下层及其所有内部循环全部完成后，回到本层，取下一个行业，直到 <b>industry</b> 列表遍历完毕。</div>
+        <div class="pseudo-code">for industry in industry_list:<br>&nbsp;&nbsp;# 固定当前industry，进入cityCode循环</div>
+        <div class="example-block"><b>示例：</b>当前keyword=“售前”，industry=“不限”，进入cityCode循环...</div>
+        <div class="nest-desc">下层cityCode循环全部完成后，回到本层，取下一个industry。</div>
+      </div>
+      <div class="horizontal-flow">
+        <span class="label">不限</span>
+      </div>
+      <div class="arrow"></div><div class="connector-line"></div>
+
+      <div class="node loop">遍历 cityCode<span class="tooltip">依次取出 cityCode 列表中的每一个城市</span></div>
+      <div class="logic-detail nest2">
+        <div><b>循环逻辑：</b>对于当前keyword和industry，依次从 <b>cityCode</b> 列表中取出每一个城市，固定为当前城市，进入下层 <b>experience</b> 循环。下层及其所有内部循环全部完成后，回到本层，取下一个城市，直到 <b>cityCode</b> 列表遍历完毕。</div>
+        <div class="pseudo-code">for city in cityCode_list:<br>&nbsp;&nbsp;# 固定当前city，进入experience循环</div>
+        <div class="example-block"><b>示例：</b>当前keyword=“售前”，industry=“不限”，city=“厦门”，进入experience循环...</div>
+        <div class="nest-desc">下层experience循环全部完成后，回到本层，取下一个city。</div>
+      </div>
+      <div class="horizontal-flow">
+        <span class="label">厦门</span><span class="label">泉州</span><span class="label">福州</span><span class="label">深圳</span><span class="label">成都</span>
+      </div>
+      <div class="arrow"></div><div class="connector-line"></div>
+
+      <div class="node loop">遍历 experience<span class="tooltip">依次取出 experience 列表中的每一个工作经验选项</span></div>
+      <div class="logic-detail nest3">
+        <div><b>循环逻辑：</b>对于当前keyword、industry、city，依次从 <b>experience</b> 列表中取出每一个工作经验选项，固定为当前经验，进入下层 <b>degree</b> 循环。下层及其所有内部循环全部完成后，回到本层，取下一个经验，直到 <b>experience</b> 列表遍历完毕。</div>
+        <div class="pseudo-code">for exp in experience_list:<br>&nbsp;&nbsp;# 固定当前exp，进入degree循环</div>
+        <div class="example-block"><b>示例：</b>当前keyword=“售前”，industry=“不限”，city=“厦门”，experience=“不限”，进入degree循环...</div>
+        <div class="nest-desc">下层degree循环全部完成后，回到本层，取下一个experience。</div>
+      </div>
+      <div class="horizontal-flow">
+        <span class="label">不限</span><span class="label">应届毕业生</span><span class="label">1年以下</span><span class="label">1-3年</span><span class="label">3-5年</span><span class="label">5-10年</span><span class="label">10年以上</span>
+      </div>
+      <div class="arrow"></div><div class="connector-line"></div>
+
+      <div class="node loop">遍历 degree<span class="tooltip">依次取出 degree 列表中的每一个学历选项</span></div>
+      <div class="logic-detail nest4">
+        <div><b>循环逻辑：</b>对于当前keyword、industry、city、experience，依次从 <b>degree</b> 列表中取出每一个学历选项，固定为当前学历，进入下层 <b>scale</b> 循环。下层及其所有内部循环全部完成后，回到本层，取下一个学历，直到 <b>degree</b> 列表遍历完毕。</div>
+        <div class="pseudo-code">for deg in degree_list:<br>&nbsp;&nbsp;# 固定当前deg，进入scale循环</div>
+        <div class="example-block"><b>示例：</b>当前keyword=“售前”，industry=“不限”，city=“厦门”，experience=“不限”，degree=“大专”，进入scale循环...</div>
+        <div class="nest-desc">下层scale循环全部完成后，回到本层，取下一个degree。</div>
+      </div>
+      <div class="horizontal-flow">
+        <span class="label">大专</span><span class="label">本科</span><span class="label">硕士</span>
+      </div>
+      <div class="arrow"></div><div class="connector-line"></div>
+
+      <div class="node loop">遍历 scale<span class="tooltip">依次取出 scale 列表中的每一个公司规模选项</span></div>
+      <div class="logic-detail nest5">
+        <div><b>循环逻辑：</b>对于当前keyword、industry、city、experience、degree，依次从 <b>scale</b> 列表中取出每一个公司规模选项，固定为当前规模，进入下层 <b>stage</b> 循环。下层循环全部完成后，回到本层，取下一个规模，直到 <b>scale</b> 列表遍历完毕。</div>
+        <div class="pseudo-code">for scale in scale_list:<br>&nbsp;&nbsp;# 固定当前scale，进入stage循环</div>
+        <div class="example-block"><b>示例：</b>当前keyword=“售前”，industry=“不限”，city=“厦门”，experience=“不限”，degree=“大专”，scale=“0-20人”，进入stage循环...</div>
+        <div class="nest-desc">下层stage循环全部完成后，回到本层，取下一个scale。</div>
+      </div>
+      <div class="horizontal-flow">
+        <span class="label">0-20人</span><span class="label">20-99人</span><span class="label">100-499人</span><span class="label">500-999人</span><span class="label">1000-9999人</span><span class="label">10000人以上</span><span class="label">不限</span>
+      </div>
+      <div class="arrow"></div><div class="connector-line"></div>
+
+      <div class="node loop">遍历 stage<span class="tooltip">依次取出 stage 列表中的每一个融资阶段选项</span></div>
+      <div class="logic-detail nest6">
+        <div><b>循环逻辑：</b>对于当前keyword、industry、city、experience、degree、scale，依次从 <b>stage</b> 列表中取出每一个融资阶段选项，固定为当前stage，进入最内层搜索与投递流程。每个stage处理完毕后，回到本层，取下一个stage，直到 <b>stage</b> 列表遍历完毕。</div>
+        <div class="pseudo-code">for stage in stage_list:<br>&nbsp;&nbsp;# 固定当前stage，进入搜索与投递流程</div>
+        <div class="example-block"><b>示例：</b>当前keyword=“售前”，industry=“不限”，city=“厦门”，experience=“不限”，degree=“大专”，scale=“0-20人”，stage=“不限”，进入搜索与投递流程...</div>
+        <div class="nest-desc">本层全部stage处理完毕后，回到上一层scale循环。</div>
+      </div>
+      <div class="horizontal-flow">
+        <span class="label">不限</span><span class="label">未融资</span><span class="label">天使轮</span><span class="label">A轮</span><span class="label">B轮</span><span class="label">C轮</span><span class="label">D轮及以上</span><span class="label">已上市</span><span class="label">不需要融资</span>
+      </div>
+      <div class="arrow"></div>
+       <div class="connector-line" style="background-color: blue; height: 20px;"></div>
+
+      <div class="node process">
+          组合当前参数并执行搜索
+          <span class="tooltip">使用当前最内层循环确定的 keywords + industry + cityCode + experience + degree + scale + stage 组合作为搜索条件</span>
+      </div>
+      <div style="margin: 10px 0;">
+        <div style="background: #f3e5f5; border-radius: 6px; padding: 8px 16px; display: inline-block;">
+          <b>参数组合示例：</b> <span class="label">关键词=售前</span> <span class="label">行业=不限</span> <span class="label">城市=厦门</span> <span class="label">经验=不限</span> <span class="label">学历=大专</span> <span class="label">规模=0-20人</span> <span class="label">融资=不限</span>
+        </div>
+      </div>
+      <div class="arrow"></div>
+      <div class="connector-line"></div>
+
+  </div>
+
+  <div class="node process">
+      过滤搜索结果
+      <span class="tooltip">对搜索到的岗位列表进行多重过滤：黑名单（公司/岗位/招聘者，支持正则）、期望薪资、HR活跃度、关键词匹配等。</span>
+  </div>
+  <div style="margin: 10px 0 20px 0;">
+    <div style="background: #fffde7; border-radius: 6px; padding: 8px 16px; display: inline-block;">
+      <b>过滤条件：</b>
+      <ul style="text-align:left; margin: 0 0 0 20px;">
+        <li>期望薪资：岗位最高薪资需≥配置最低薪资</li>
+        <li>HR活跃度：过滤不活跃招聘者</li>
+        <li>关键词匹配：岗位名称需包含完整搜索关键词</li>
+        <li>黑名单：公司/岗位/招聘者/公司+招聘者命中黑名单（支持正则）</li>
+      </ul>
+    </div>
+  </div>
+  <div class="arrow"></div>
+  <div class="connector-line"></div>
+
+  <div class="node loop">
+      遍历过滤后的岗位
+      <span class="tooltip">依次处理每一个符合过滤条件的岗位</span>
+  </div>
+  <div class="arrow"></div>
+  <div class="connector-line"></div>
+
+  <div class="node decision">
+      是否已投递/过期?
+      <span class="tooltip">根据 appliedJobs 记录、投递唯一标识 (公司+岗位核心名+薪资核心区间+时间戳) 和 deliverExpireDays 判断</span>
+  </div>
+  <div style="margin: 10px 0 20px 0;">
+    <div style="background: #e3f2fd; border-radius: 6px; padding: 8px 16px; display: inline-block;">
+      <b>去重判定：</b> <br>
+      <span style="font-size:0.95em;">唯一标识 = 公司 + 岗位核心名 + 薪资核心区间 + 时间戳</span><br>
+      <span style="font-size:0.95em;">如已投递且未过期（deliverExpireDays），则跳过；否则执行投递并记录。</span>
+    </div>
+  </div>
+  <div class="arrow"></div>
+   <div class="connector-line" style="height: 30px;"></div>
+
+  <div style="display: flex; justify-content: center; width: 400px; margin-bottom: 20px;">
+      <div style="display: flex; flex-direction: column; align-items: center; margin-right: 50px;">
+           <div style="font-size: 0.9em; margin-bottom: 5px;">(否)</div>
+          <div class="node process" style="width: 150px;">
+              执行投递操作
+              <span class="tooltip">向招聘者发送打招呼信息、简历等。受 waitTime 控制间隔。</span>
+          </div>
+          <div class="arrow"></div>
+          <div class="connector-line" style="height: 20px;"></div>
+          <div class="node process" style="width: 150px;">
+              更新投递记录
+              <span class="tooltip">将当前岗位的投递信息添加到 appliedJobs (data.json) 中，记录投递时间。</span>
+          </div>
+      </div>
+       <div style="display: flex; flex-direction: column; align-items: center; margin-left: 50px;">
+            <div style="font-size: 0.9em; margin-bottom: 5px;">(是)</div>
+           <div class="node process" style="width: 150px;">
+              跳过投递
+              <span class="tooltip">岗位已投递且未过期，跳过当前岗位处理。</span>
+           </div>
+       </div>
+  </div>
+   <div class="arrow"></div>
+  <div class="connector-line"></div>
+
+
+  <div class="node loop">
+      返回遍历岗位循环
+      <span class="tooltip">处理下一个过滤后的岗位，直到当前搜索结果中的所有岗位都处理完毕。</span>
+  </div>
+   <div class="arrow"></div>
+  <div class="connector-line"></div>
+
+
+  <div class="node loop">
+      返回参数组合轮询
+      <span class="tooltip">返回最内层循环，尝试下一个参数组合。如果所有组合遍历完毕，流程向下。</span>
+  </div>
+   <div class="arrow"></div>
+  <div class="connector-line"></div>
+
+
+  <div class="node start-end">结束<span class="tooltip">所有参数组合和岗位都已处理，流程结束。</span></div>
+
+</div>
+
+<!-- 详细流程说明区块 -->
+<div style="max-width:900px;margin:40px auto 0 auto;padding:24px 32px;background:#f5f5f5;border-radius:10px;box-shadow:0 2px 8px #eee;">
+  <h2 style="color:#673ab7;">详细流程说明</h2>
+  <ol style="text-align:left;">
+    <li>系统依次遍历 <b>keywords</b>（12个关键词），每个关键词下依次遍历 <b>industry</b>（1个行业），再依次遍历 <b>cityCode</b>（5个城市），再依次遍历 <b>experience</b>（7个经验），再依次遍历 <b>degree</b>（3个学历），再依次遍历 <b>scale</b>（7个公司规模），再依次遍历 <b>stage</b>（9个融资阶段），形成全排列组合。</li>
+    <li>每生成一个参数组合，立即在Boss直聘平台执行一次岗位搜索。</li>
+    <li>对搜索结果依次应用多重过滤：<ul><li>岗位最高薪资需≥期望最低薪资</li><li>过滤不活跃HR</li><li>岗位名称需包含完整关键词</li><li>公司/岗位/招聘者/公司+招聘者命中黑名单（支持正则）</li></ul></li>
+    <li>遍历所有通过过滤的岗位，检查是否已投递且未过期（唯一标识+投递天数），如未投递或已过期则执行投递并记录，否则跳过。</li>
+    <li>所有岗位处理完毕后，回到参数组合轮询，直到所有组合遍历完毕，流程结束。</li>
+  </ol>
+  <div style="margin-top:12px;color:#888;font-size:0.95em;">本流程确保所有配置条件下的岗位都能被搜索和投递，且通过去重机制避免短期重复投递。</div>
+</div>
+
+</body>
+</html>
